@@ -1,6 +1,7 @@
-// Vice Cover v3 — the editor: photos, layouts, grades, caption, pan/zoom per
-// panel, export sizes, and the ?shot= scenes for screenshots (see shots.js).
-import { renderCover, layoutPanels } from './cover.js';
+// Vice Cover — the editor: photos, layouts, grades, caption, one-click
+// presets, pan/zoom per panel, export sizes, and the ?shot= scenes for
+// screenshots (see shots.js).
+import { drawCover, panelRects } from './cover.js';
 import { runShot } from './shots.js';
 
 /** The three post sizes the cover exports as PNGs. */
@@ -8,6 +9,24 @@ export const SIZES = {
   '1920x1080': { w: 1920, h: 1080, label: '1920 x 1080' },
   '1080x1080': { w: 1080, h: 1080, label: '1080 x 1080' },
   '1080x1350': { w: 1080, h: 1350, label: '1080 x 1350' },
+};
+
+/** One-click covers: a preset sets the layout, grade, caption, subtitle,
+ * position and which sample photo leads, so the first thing a visitor sees
+ * is a finished poster, not a blank editor. */
+export const PRESETS = {
+  heist: {
+    layout: 'hero', grade: 'sunset', caption: 'Vice City',
+    subtitle: 'A story in three panels', pos: 'bottom', photo: 'boulevard', photo2: 'pier',
+  },
+  neon: {
+    layout: 'strips', grade: 'neon', caption: 'Neon Nights',
+    subtitle: 'Boulevard after dark', pos: 'bottom', photo: 'boulevard', photo2: 'pier',
+  },
+  dusk: {
+    layout: 'grid', grade: 'dusk', caption: 'Boulevard Queen',
+    subtitle: 'Four ways home', pos: 'bottom', photo: 'pier', photo2: 'boulevard',
+  },
 };
 
 const canvas = document.getElementById('cover');
@@ -37,7 +56,7 @@ function gapPx() {
 }
 
 function panelCount() {
-  return layoutPanels(state.layout, 100, 100, 1).length;
+  return panelRects(state.layout, 100, 100, 1).length;
 }
 
 /** Grows or shrinks the panel list to the layout, assigning each new panel
@@ -63,7 +82,7 @@ function redraw() {
     canvas.height = size.h;
   }
   syncPanels();
-  renderCover(canvas, {
+  drawCover(canvas, {
     layout: state.layout,
     grade: state.grade,
     caption: state.caption,
@@ -133,9 +152,9 @@ async function addFiles(files) {
   redraw();
 }
 
-/** The two procedural sample photos: the boulevard convertible first (it is
- * the hero shot), then the dawn pier. If every sample fails, say so instead
- * of letting `i % 0` set a panel's photo to NaN. */
+/** The two real sample photos from the kit: the boulevard convertible at
+ * sunset first (it is the hero shot), then the dawn pier. If every sample
+ * fails, say so instead of letting `i % 0` set a panel's photo to NaN. */
 async function loadSamples() {
   for (const name of ['boulevard.jpg', 'pier.jpg']) {
     try {
@@ -147,12 +166,39 @@ async function loadSamples() {
     return;
   }
   state.panels.forEach((p, i) => { p.photo = i % state.photos.length; });
-  statusEl.textContent = 'Sample photos loaded — try the layouts and grades.';
+  statusEl.textContent = 'Sample photos loaded — try the presets, layouts and grades.';
+  redraw();
+}
+
+/** Applies a preset by name, loading its two photos in order. */
+async function applyPreset(name) {
+  const preset = PRESETS[name];
+  if (!preset) return;
+  state.layout = preset.layout;
+  state.grade = preset.grade;
+  state.caption = preset.caption;
+  state.subtitle = preset.subtitle;
+  state.captionPos = preset.pos;
+  captionEl.value = preset.caption;
+  subtitleEl.value = preset.subtitle;
+  state.photos = [];
+  for (const photo of [preset.photo, preset.photo2]) {
+    try {
+      state.photos.push(await loadImage(`samples/${photo}.jpg`));
+    } catch { /* a missing sample is skipped */ }
+  }
+  state.panels = [];
+  state.selected = 0;
+  syncPanels();
+  state.panels.forEach((p, i) => { p.photo = i % state.photos.length; });
+  statusEl.textContent = `Preset applied — ${preset.caption}.`;
   redraw();
 }
 
 document.getElementById('photo').addEventListener('change', (e) => addFiles(e.target.files));
 document.getElementById('samples').addEventListener('click', loadSamples);
+document.querySelectorAll('[data-preset]').forEach((b) =>
+  b.addEventListener('click', () => applyPreset(b.dataset.preset)));
 document.querySelectorAll('[data-layout]').forEach((b) =>
   b.addEventListener('click', () => { state.layout = b.dataset.layout; state.selected = 0; redraw(); }));
 document.querySelectorAll('[data-grade]').forEach((b) =>
@@ -177,7 +223,7 @@ function canvasPoint(e) {
 }
 
 function hitPanel(x, y) {
-  const rects = layoutPanels(state.layout, canvas.width, canvas.height, gapPx());
+  const rects = panelRects(state.layout, canvas.width, canvas.height, gapPx());
   return rects.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
 }
 
@@ -194,7 +240,7 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
   const p = canvasPoint(e);
-  const rects = layoutPanels(state.layout, canvas.width, canvas.height, gapPx());
+  const rects = panelRects(state.layout, canvas.width, canvas.height, gapPx());
   const r = rects[state.selected];
   drag.panel.ox += (p.x - drag.x) / r.w;
   drag.panel.oy += (p.y - drag.y) / r.h;
@@ -228,7 +274,7 @@ document.getElementById('export').addEventListener('click', () => {
   const off = document.createElement('canvas');
   off.width = size.w;
   off.height = size.h;
-  renderCover(off, {
+  drawCover(off, {
     layout: state.layout,
     grade: state.grade,
     caption: state.caption,
@@ -251,6 +297,29 @@ const query = new URLSearchParams(location.search);
 const shot = query.get('shot');
 if (shot) {
   runShot(shot, query, async (params) => {
+    if (params.preset && PRESETS[params.preset]) {
+      const preset = PRESETS[params.preset];
+      state.layout = preset.layout;
+      state.grade = preset.grade;
+      state.sizeKey = params.size || '1920x1080';
+      state.caption = preset.caption;
+      state.subtitle = preset.subtitle;
+      state.captionPos = preset.pos;
+      state.photos = [];
+      for (const photo of [preset.photo, preset.photo2]) {
+        state.photos.push(await loadImage(`samples/${photo}.jpg`));
+      }
+      state.panels = [];
+      syncPanels();
+      state.panels.forEach((p, i) => { p.photo = i % state.photos.length; });
+      // A shot may still override the preset's caption or subtitle.
+      if (params.caption) state.caption = params.caption;
+      if (params.subtitle) state.subtitle = params.subtitle;
+      captionEl.value = state.caption;
+      subtitleEl.value = state.subtitle;
+      redraw();
+      return;
+    }
     state.layout = params.layout || 'hero';
     state.grade = params.grade || 'sunset';
     state.sizeKey = params.size || '1920x1080';

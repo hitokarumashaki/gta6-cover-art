@@ -1,8 +1,8 @@
 // Fixed scenes for screenshots: ?shot=cover shows the exported cover alone,
 // ?shot=editor shows the app with a sample photo loaded and the controls
 // visible. Query params: layout, grade, size, caption, subtitle, pos, color,
-// scale, photo, photo2 (sample names without .jpg). window.__shotReady is
-// set once the scene has painted.
+// scale, photo, photo2 (sample names without .jpg), focus. window.__shotReady
+// is set once the scene has painted.
 export async function runShot(shot, query, setup) {
   if (shot === 'cover') document.body.classList.add('shot-cover');
   // The scale param is user-supplied, so only a finite number is accepted:
@@ -21,6 +21,7 @@ export async function runShot(shot, query, setup) {
     photo: query.get('photo'),
     photo2: query.get('photo2'),
     focus: query.get('focus'),
+    preset: query.get('preset'),
   };
   await setup(params);
   if (shot === 'cover') {
