@@ -4,6 +4,10 @@
 // photo, photo2 (sample names without .jpg). window.__shotReady is set once painted.
 export async function runShot(shot, query, setup) {
   if (shot === 'cover') document.body.classList.add('shot-cover');
+  // The scale param is user-supplied, so only accept a finite number:
+  // a non-numeric value used to become NaN and break the caption size.
+  const scaleRaw = query.get('scale');
+  const scale = scaleRaw && Number.isFinite(Number(scaleRaw)) ? Number(scaleRaw) : undefined;
   const params = {
     layout: query.get('layout'),
     grade: query.get('grade'),
@@ -12,7 +16,7 @@ export async function runShot(shot, query, setup) {
     subtitle: query.get('subtitle'),
     pos: query.get('pos'),
     color: query.get('color'),
-    scale: query.get('scale') ? Number(query.get('scale')) : undefined,
+    scale,
     photo: query.get('photo'),
     photo2: query.get('photo2'),
   };

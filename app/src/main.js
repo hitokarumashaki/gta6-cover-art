@@ -134,6 +134,12 @@ async function loadSamples() {
       state.photos.push(await loadImage(`samples/${name}`));
     } catch { /* a missing sample is skipped */ }
   }
+  // If every sample failed to load, there is nothing to assign to panels:
+  // without this guard `i % 0` would set each panel photo to NaN.
+  if (!state.photos.length) {
+    status.textContent = 'Sample photos could not be loaded.';
+    return;
+  }
   state.panels.forEach((p, i) => { p.photo = i % state.photos.length; });
   status.textContent = 'Sample photos loaded — try the layouts and grades.';
   redraw();
