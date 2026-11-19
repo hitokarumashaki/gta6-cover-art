@@ -1,14 +1,15 @@
-// Vice Cover v3 (gta6-cover-art-01) — the entry program (Node 22, standard
-// library only). It hands in the app this directory's app/ folder holds: plain
-// static files a desktop browser loads offline (app/index.html and its ES
-// modules, no library, no network request). It copies app/ and screenshots/
-// from beside this file to /output and writes /output/dossier.json, the
-// summary the judge reads, with the vendored make.fun library.
+// Vice Cover (gta6-cover-art-01) — the entry program (Node 22, standard
+// library only). It hands in the app this directory's app/ folder holds:
+// plain static files a desktop browser loads offline (app/index.html and its
+// ES modules, no library, no network request). It copies app/ and
+// screenshots/ from beside this file to /output and writes
+// /output/dossier.json, the summary the judge reads, with the vendored
+// make.fun library.
 //
 // The app itself: a multi-panel GTA-style cover maker — see app/src/cover.js
-// for the layouts, grades and lettering, and app/src/main.js for the editor.
-// Its two sample photos (app/samples/) are procedural SVG art drawn by
-// gen-samples.mjs in this repository, free to use. Everything in the app is
+// for the layouts, grades and lettering, and app/src/main.js for the editor
+// and its one-click presets. Its two sample photos (app/samples/) come from
+// the competition kit and are free to use. Everything in the app is
 // original: no Rockstar Games logo, artwork or font.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.

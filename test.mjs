@@ -1,13 +1,14 @@
-// Functional test for Vice Cover v3: loads the editor, uses the sample
-// photos, switches layouts/grades, edits the caption, drags a panel, and
-// exports a PNG at each of the three sizes, checking each download is a
-// valid PNG of the right dimensions. Exits non-zero on any failure.
+// Functional test for Vice Cover: loads the editor, uses the sample photos,
+// applies a preset, switches layouts/grades, edits the caption, drags a
+// panel, and exports a PNG at each of the three sizes, checking each
+// download is a valid PNG of the right dimensions. Exits non-zero on any
+// failure.
 import { chromium } from '/home/hatch/workspace/makefun/gta6/node_modules/playwright/index.mjs';
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
-const REPO = '/home/hatch/workspace/makefun/coverart/repo-v3';
-const PORT = 8905;
+const REPO = '/home/hatch/workspace/makefun/coverart/repo-v4';
+const PORT = 8907;
 const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: REPO, stdio: 'pipe' });
 await new Promise((r) => setTimeout(r, 1500));
 
@@ -31,9 +32,15 @@ await page.click('#samples');
 await page.waitForFunction(() => document.querySelectorAll('#tray .thumb').length === 2, { timeout: 15000 });
 check('sample photos loaded', true);
 
-// Switch layout + grade + caption.
-await page.click('[data-layout="strips"]');
-await page.click('[data-grade="neon"]');
+// Apply the Neon Nights preset: layout, grade and caption all change.
+await page.click('[data-preset="neon"]');
+await new Promise((r) => setTimeout(r, 400));
+check('preset sets caption', (await page.inputValue('#caption')) === 'Neon Nights');
+check('preset sets subtitle', (await page.inputValue('#subtitle')) === 'Boulevard after dark');
+
+// Switch layout + grade + caption by hand.
+await page.click('[data-layout="grid"]');
+await page.click('[data-grade="dusk"]');
 await page.fill('#caption', 'Test Cover');
 await page.fill('#subtitle', 'Testing the maker');
 check('caption input holds typed value', (await page.inputValue('#caption')) === 'Test Cover');

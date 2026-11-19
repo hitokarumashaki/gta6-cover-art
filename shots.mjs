@@ -1,4 +1,4 @@
-// Takes Vice Cover v3's screenshots with headless Chromium: serves app/ on
+// Takes Vice Cover's screenshots with headless Chromium: serves app/ on
 // localhost, opens each ?shot= scene from shots.json, waits for
 // window.__shotReady, saves a JPEG, and re-takes at lower quality until it
 // fits the gate (<= 256 KiB, long side <= 1280, short side >= 480).
@@ -7,8 +7,8 @@ import { spawn } from 'node:child_process';
 import { readFileSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const REPO = '/home/hatch/workspace/makefun/coverart/repo-v3';
-const PORT = 8904;
+const REPO = '/home/hatch/workspace/makefun/coverart/repo-v4';
+const PORT = 8906;
 const SHOTS = JSON.parse(readFileSync(join(REPO, 'shots.json'), 'utf8'));
 
 const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: REPO, stdio: 'pipe' });
