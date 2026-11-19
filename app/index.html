@@ -12,7 +12,17 @@
 <main class="app">
   <section class="controls">
     <h1>Vice Cover</h1>
-    <p class="tag">Turn your photos into GTA 6-style cover art — multi-panel posters, bold lettering, a Vice City sunset or neon grade — and export a PNG to share.</p>
+    <p class="tag">Turn your photos into GTA 6-style cover art — multi-panel posters, huge lettering, a Vice City sunset or neon grade — and export a PNG to share.</p>
+
+    <div class="group">
+      <h2>Presets</h2>
+      <p class="hint">One tap sets the layout, grade, caption and photos.</p>
+      <div class="row" role="group" aria-label="Cover presets">
+        <button type="button" data-preset="heist" class="preset">Sunset Heist</button>
+        <button type="button" data-preset="neon" class="preset">Neon Nights</button>
+        <button type="button" data-preset="dusk" class="preset">Dusk Drive</button>
+      </div>
+    </div>
 
     <div class="group">
       <h2>1 · Photos</h2>
@@ -44,8 +54,8 @@
         <button type="button" data-color="#ff5fa2" class="swatch" style="--c:#ff5fa2" aria-label="Pink caption">Pink</button>
       </div>
       <div class="row" role="group" aria-label="Caption position">
-        <button type="button" data-pos="bottom" class="choice on">Bottom</button>
         <button type="button" data-pos="top" class="choice">Top</button>
+        <button type="button" data-pos="bottom" class="choice on">Bottom</button>
       </div>
     </div>
 

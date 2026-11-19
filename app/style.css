@@ -1,5 +1,6 @@
-/* Vice Cover v3 — editor chrome: dark violet panels, sunset-orange accent,
-   a roomy control column on the left and the live cover preview on the right. */
+/* Vice Cover — editor chrome: deep violet panels, a sunset-orange accent,
+   a narrow control column on the left and the live cover preview on the
+   right. The preview sticks while the controls scroll. */
 html, body { margin: 0; min-height: 100%; background: #17121f; color: #f4f0f8; font: 15px/1.45 system-ui, sans-serif; }
 .app { display: flex; gap: 24px; align-items: flex-start; justify-content: center; min-height: 100vh; padding: 20px; box-sizing: border-box; }
 .controls { display: flex; flex-direction: column; gap: 16px; width: 320px; flex: none; }
@@ -20,6 +21,8 @@ button:hover { background: #4a3a63; }
 button.on { background: #ff6e3c; color: #17121f; }
 button.primary { background: linear-gradient(90deg, #ff6e3c, #d62678); color: #fff; font-size: 16px; padding: 12px; }
 button.ghost { background: transparent; border: 1px solid #4a3a63; }
+.preset { flex: 1 1 auto; background: linear-gradient(135deg, #3a1c5e, #6b1a5e); border: 1px solid #7b2ff7; }
+.preset:hover { background: linear-gradient(135deg, #4a2480, #8a2478); }
 .choice { flex: 1 1 auto; }
 .swatch { flex: 1 1 auto; }
 .swatch::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 6px; border-radius: 50%; background: var(--c); vertical-align: -1px; }
