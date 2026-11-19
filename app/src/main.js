@@ -1,8 +1,9 @@
-// Vice Cover editor wiring: photos, layouts, grades, caption, pan/zoom per panel,
-// export sizes, and the ?shot= scenes for screenshots (see ./shots.js).
-import { drawCover, panelRects, LAYOUTS } from './cover.js';
+// Vice Cover v3 — the editor: photos, layouts, grades, caption, pan/zoom per
+// panel, export sizes, and the ?shot= scenes for screenshots (see shots.js).
+import { renderCover, layoutPanels } from './cover.js';
 import { runShot } from './shots.js';
 
+/** The three post sizes the cover exports as PNGs. */
 export const SIZES = {
   '1920x1080': { w: 1920, h: 1080, label: '1920 x 1080' },
   '1080x1080': { w: 1080, h: 1080, label: '1080 x 1080' },
@@ -10,10 +11,12 @@ export const SIZES = {
 };
 
 const canvas = document.getElementById('cover');
-const status = document.getElementById('status');
-const captionInput = document.getElementById('caption');
-const subtitleInput = document.getElementById('subtitle');
-const sizeInput = document.getElementById('captionsize');
+const statusEl = document.getElementById('status');
+const captionEl = document.getElementById('caption');
+const subtitleEl = document.getElementById('subtitle');
+const sizeEl = document.getElementById('captionsize');
+const zoomEl = document.getElementById('zoom');
+const zoomVal = document.getElementById('zoomval');
 
 const state = {
   layout: 'hero',
@@ -29,11 +32,17 @@ const state = {
   selected: 0,
 };
 
-function panelCount() {
-  return panelRects(state.layout, 100, 100, 1).length;
+function gapPx() {
+  return Math.max(4, Math.round(canvas.width * 0.007));
 }
 
-function ensurePanels() {
+function panelCount() {
+  return layoutPanels(state.layout, 100, 100, 1).length;
+}
+
+/** Grows or shrinks the panel list to the layout, assigning each new panel
+ * a photo in turn. */
+function syncPanels() {
   const n = panelCount();
   while (state.panels.length < n) {
     const i = state.panels.length;
@@ -43,7 +52,7 @@ function ensurePanels() {
   if (state.selected >= n) state.selected = 0;
 }
 
-function panelImages() {
+function panelViews() {
   return state.panels.map((p) => ({ ...p, img: state.photos[p.photo] || null }));
 }
 
@@ -53,8 +62,8 @@ function redraw() {
     canvas.width = size.w;
     canvas.height = size.h;
   }
-  ensurePanels();
-  drawCover(canvas, {
+  syncPanels();
+  renderCover(canvas, {
     layout: state.layout,
     grade: state.grade,
     caption: state.caption,
@@ -62,18 +71,16 @@ function redraw() {
     captionPos: state.captionPos,
     captionColor: state.captionColor,
     captionScale: state.captionScale,
-    panels: panelImages(),
+    panels: panelViews(),
   });
-  document.querySelectorAll('[data-layout]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.layout === state.layout));
-  document.querySelectorAll('[data-grade]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.grade === state.grade));
-  document.querySelectorAll('[data-size]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.size === state.sizeKey));
-  document.querySelectorAll('[data-color]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.color === state.captionColor));
-  document.querySelectorAll('[data-pos]').forEach((b) =>
-    b.classList.toggle('on', b.dataset.pos === state.captionPos));
+  const mark = (attr, value) => {
+    document.querySelectorAll(`[${attr}]`).forEach((b) => b.classList.toggle('on', b.dataset[attr.slice(5)] === value));
+  };
+  mark('data-layout', state.layout);
+  mark('data-grade', state.grade);
+  mark('data-size', state.sizeKey);
+  mark('data-color', state.captionColor);
+  mark('data-pos', state.captionPos);
   renderTray();
 }
 
@@ -100,17 +107,17 @@ function renderTray() {
     thumb.alt = `Photo ${i + 1}`;
     b.appendChild(thumb);
     b.addEventListener('click', () => {
-      state.panels[state.selected].photo = i;
-      state.panels[state.selected].zoom = 1;
-      state.panels[state.selected].ox = 0;
-      state.panels[state.selected].oy = 0;
+      const p = state.panels[state.selected];
+      p.photo = i;
+      p.zoom = 1;
+      p.ox = 0;
+      p.oy = 0;
       redraw();
     });
     tray.appendChild(b);
   });
-  document.getElementById('zoom').disabled = !state.photos.length;
-  document.getElementById('zoomval').textContent =
-    `${Math.round((state.panels[state.selected]?.zoom || 1) * 100)}%`;
+  zoomEl.disabled = !state.photos.length;
+  zoomVal.textContent = `${Math.round((state.panels[state.selected]?.zoom || 1) * 100)}%`;
 }
 
 async function addFiles(files) {
@@ -120,28 +127,27 @@ async function addFiles(files) {
     state.photos.push(await loadImage(URL.createObjectURL(file)));
     added += 1;
   }
-  if (added) {
-    state.panels.forEach((p, i) => { if (!state.photos[p.photo]) p.photo = i % state.photos.length; });
-    status.textContent = `${state.photos.length} photo${state.photos.length > 1 ? 's' : ''} loaded — click a panel, then drag to crop it.`;
-    redraw();
-  }
+  if (!added) return;
+  state.panels.forEach((p, i) => { if (!state.photos[p.photo]) p.photo = i % state.photos.length; });
+  statusEl.textContent = `${state.photos.length} photo${state.photos.length > 1 ? 's' : ''} loaded — click a panel, then drag to crop it.`;
+  redraw();
 }
 
+/** The two procedural sample photos: the boulevard convertible first (it is
+ * the hero shot), then the dawn pier. If every sample fails, say so instead
+ * of letting `i % 0` set a panel's photo to NaN. */
 async function loadSamples() {
-  const names = ['pier.jpg', 'boulevard.jpg'];
-  for (const name of names) {
+  for (const name of ['boulevard.jpg', 'pier.jpg']) {
     try {
       state.photos.push(await loadImage(`samples/${name}`));
     } catch { /* a missing sample is skipped */ }
   }
-  // If every sample failed to load, there is nothing to assign to panels:
-  // without this guard `i % 0` would set each panel photo to NaN.
   if (!state.photos.length) {
-    status.textContent = 'Sample photos could not be loaded.';
+    statusEl.textContent = 'Sample photos could not be loaded.';
     return;
   }
   state.panels.forEach((p, i) => { p.photo = i % state.photos.length; });
-  status.textContent = 'Sample photos loaded — try the layouts and grades.';
+  statusEl.textContent = 'Sample photos loaded — try the layouts and grades.';
   redraw();
 }
 
@@ -157,11 +163,11 @@ document.querySelectorAll('[data-color]').forEach((b) =>
   b.addEventListener('click', () => { state.captionColor = b.dataset.color; redraw(); }));
 document.querySelectorAll('[data-pos]').forEach((b) =>
   b.addEventListener('click', () => { state.captionPos = b.dataset.pos; redraw(); }));
-captionInput.addEventListener('input', () => { state.caption = captionInput.value; redraw(); });
-subtitleInput.addEventListener('input', () => { state.subtitle = subtitleInput.value; redraw(); });
-sizeInput.addEventListener('input', () => { state.captionScale = Number(sizeInput.value); redraw(); });
-document.getElementById('zoom').addEventListener('input', (e) => {
-  state.panels[state.selected].zoom = Number(e.target.value);
+captionEl.addEventListener('input', () => { state.caption = captionEl.value; redraw(); });
+subtitleEl.addEventListener('input', () => { state.subtitle = subtitleEl.value; redraw(); });
+sizeEl.addEventListener('input', () => { state.captionScale = Number(sizeEl.value); redraw(); });
+zoomEl.addEventListener('input', () => {
+  state.panels[state.selected].zoom = Number(zoomEl.value);
   redraw();
 });
 
@@ -171,7 +177,7 @@ function canvasPoint(e) {
 }
 
 function hitPanel(x, y) {
-  const rects = panelRects(state.layout, canvas.width, canvas.height, Math.max(4, Math.round(canvas.width * 0.007)));
+  const rects = layoutPanels(state.layout, canvas.width, canvas.height, gapPx());
   return rects.findIndex((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
 }
 
@@ -188,7 +194,7 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
   const p = canvasPoint(e);
-  const rects = panelRects(state.layout, canvas.width, canvas.height, Math.max(4, Math.round(canvas.width * 0.007)));
+  const rects = layoutPanels(state.layout, canvas.width, canvas.height, gapPx());
   const r = rects[state.selected];
   drag.panel.ox += (p.x - drag.x) / r.w;
   drag.panel.oy += (p.y - drag.y) / r.h;
@@ -222,7 +228,7 @@ document.getElementById('export').addEventListener('click', () => {
   const off = document.createElement('canvas');
   off.width = size.w;
   off.height = size.h;
-  drawCover(off, {
+  renderCover(off, {
     layout: state.layout,
     grade: state.grade,
     caption: state.caption,
@@ -230,14 +236,14 @@ document.getElementById('export').addEventListener('click', () => {
     captionPos: state.captionPos,
     captionColor: state.captionColor,
     captionScale: state.captionScale,
-    panels: panelImages(),
+    panels: panelViews(),
   });
   off.toBlob((blob) => {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `vice-cover-${size.w}x${size.h}.png`;
     a.click();
-    status.textContent = `Saved vice-cover-${size.w}x${size.h}.png`;
+    statusEl.textContent = `Saved vice-cover-${size.w}x${size.h}.png`;
   }, 'image/png');
 });
 
@@ -253,14 +259,18 @@ if (shot) {
     state.captionPos = params.pos || 'bottom';
     state.captionColor = params.color || '#ffffff';
     state.captionScale = params.scale || 1;
-    captionInput.value = state.caption;
-    subtitleInput.value = state.subtitle;
-    const names = [params.photo || 'pier', params.photo2 || 'boulevard'];
+    captionEl.value = state.caption;
+    subtitleEl.value = state.subtitle;
+    const names = [params.photo || 'boulevard', params.photo2 || 'pier'];
     state.photos = [];
     for (const name of names) state.photos.push(await loadImage(`samples/${name}.jpg`));
     state.panels = [];
-    ensurePanels();
+    syncPanels();
     state.panels.forEach((p, i) => { p.photo = i % state.photos.length; });
+    // A tall strip crops to the photo's middle band, which is mostly sky:
+    // for a low-focus shot, pull each photo up so its lower half (the car,
+    // the pier deck) is what the panel shows.
+    if (params.focus === 'low') state.panels.forEach((p) => { p.oy = -0.18; });
     redraw();
   });
 } else {
