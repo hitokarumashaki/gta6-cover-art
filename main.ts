@@ -31,6 +31,10 @@ if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), joi
 const shots = readdirSync(join(out, 'screenshots')).filter((f) => !f.startsWith('.'));
 if (shots.length < 3) throw new Error(`expected at least 3 screenshots, found ${shots.length}`);
 
+// The judge opens app/index.html first, so refuse to build a dossier with no
+// entrypoint: a copied app/ without it would score nothing.
+if (!existsSync(join(out, 'app', 'index.html'))) throw new Error('app/index.html missing from output');
+
 // The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
 // scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in app/ or 48 MiB of app
 // files, in all, or a path under app/ over 1000 bytes: app/ counts beside /output's own 1000-entry cap, its

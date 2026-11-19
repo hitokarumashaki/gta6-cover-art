@@ -6,6 +6,8 @@
 
 Vice Cover turns your photos into GTA 6-style cover art: a multi-panel poster with bold outlined lettering and a Vice City sunset or neon colour grade, exported as a PNG to share. It runs offline in a desktop browser from its own static files — your photos never leave your machine.
 
+v2 changes: punchier poster grades, a bigger caption title, and the boulevard photo as the hero shot.
+
 ## What it does
 
 - **Multi-panel layouts** — hero + two small panels, three vertical strips, a 2 x 2 grid, or a single full photo. Load one photo to fill every panel, or several and put a different one in each.

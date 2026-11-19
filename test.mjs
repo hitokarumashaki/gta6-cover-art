@@ -35,6 +35,7 @@ await page.click('[data-layout="strips"]');
 await page.click('[data-grade="neon"]');
 await page.fill('#caption', 'Test Cover');
 await page.fill('#subtitle', 'Testing the maker');
+check('caption input holds typed value', (await page.inputValue('#caption')) === 'Test Cover');
 await new Promise((r) => setTimeout(r, 400));
 
 // Drag the middle panel to pan it.

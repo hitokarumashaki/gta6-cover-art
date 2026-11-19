@@ -25,6 +25,7 @@ page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
 page.on('requestfailed', (req) => errors.push(`requestfailed: ${req.url()}`));
 
 mkdirSync(join(REPO, 'screenshots'), { recursive: true });
+let totalBytes = 0;
 for (const shot of SHOTS) {
   const url = `http://localhost:${PORT}/${shot.query}`;
   console.log('shot', shot.name, url);
@@ -40,11 +41,13 @@ for (const shot of SHOTS) {
       await page.screenshot({ path: outPath, type: 'jpeg', quality });
     }
     const size = statSync(outPath).size;
+    totalBytes += size;
     console.log(`  -> ${shot.name}: ${size} bytes at quality ${quality}`);
     if (size <= 256 * 1024 || quality <= 40) break;
     quality -= 10;
   }
 }
+console.log(`shots done: ${SHOTS.length} files, ${totalBytes} bytes total`);
 
 await browser.close();
 server.kill();
