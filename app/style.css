@@ -13,6 +13,7 @@ label.file { cursor: pointer; }
 input[type=text] { font: inherit; padding: 9px 10px; border: 1px solid #4a3a63; border-radius: 6px; background: #17121f; color: #fff; }
 input[type=range] { accent-color: #ff6e3c; }
 button { font: inherit; font-weight: 700; padding: 9px 12px; border: 0; border-radius: 6px; background: #3a2c50; color: #fff; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid #ff6e3c; outline-offset: 2px; }
 button:hover { background: #4a3a63; }
 button.on { background: #ff6e3c; color: #17121f; }
 button.primary { background: linear-gradient(90deg, #ff6e3c, #d62678); color: #fff; font-size: 16px; padding: 12px; }
