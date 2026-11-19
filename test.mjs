@@ -1,12 +1,13 @@
-// Functional test for Vice Cover: loads the editor, uses the sample photos,
-// switches layouts/grades, edits the caption, drags a panel, and exports a PNG
-// at each of the three sizes, checking each download is a valid PNG of the
-// right dimensions. Exits non-zero on any failure.
+// Functional test for Vice Cover v3: loads the editor, uses the sample
+// photos, switches layouts/grades, edits the caption, drags a panel, and
+// exports a PNG at each of the three sizes, checking each download is a
+// valid PNG of the right dimensions. Exits non-zero on any failure.
 import { chromium } from '/home/hatch/workspace/makefun/gta6/node_modules/playwright/index.mjs';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
-const REPO = '/home/hatch/workspace/makefun/coverart/repo';
-const PORT = 8903;
+const REPO = '/home/hatch/workspace/makefun/coverart/repo-v3';
+const PORT = 8905;
 const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: REPO, stdio: 'pipe' });
 await new Promise((r) => setTimeout(r, 1500));
 
@@ -55,7 +56,6 @@ for (const [key, w, h] of [['1920x1080', 1920, 1080], ['1080x1080', 1080, 1080],
     page.click('#export'),
   ]);
   const path = await download.path();
-  const { readFileSync } = await import('node:fs');
   const buf = readFileSync(path);
   const pngSig = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   const pw = buf.readUInt32BE(16);
