@@ -1,76 +1,175 @@
-// Functional test for Vice Cover: loads the editor, uses the sample photos,
-// applies a preset, switches layouts/grades, edits the caption, drags a
-// panel, and exports a PNG at each of the three sizes, checking each
-// download is a valid PNG of the right dimensions. Exits non-zero on any
-// failure.
-import { chromium } from '/home/hatch/workspace/makefun/gta6/node_modules/playwright/index.mjs';
-import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+// Vice Cover v5 — functional test (9 checks).
+// Serves app/ locally, drives it in headless Chromium (Playwright) and
+// reports PASS/FAIL per check. Run: node test.mjs
 
-const REPO = '/home/hatch/workspace/makefun/coverart/repo-v4';
-const PORT = 8907;
-const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: REPO, stdio: 'pipe' });
-await new Promise((r) => setTimeout(r, 1500));
+import { createServer } from 'node:http';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { join, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
-let failures = 0;
-const check = (name, ok, extra = '') => {
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${name} ${extra}`);
-  if (!ok) failures += 1;
+const require = createRequire('/home/hatch/workspace/makefun/gta6/node_modules/playwright/package.json');
+const { chromium } = require('playwright');
+
+const here = fileURLToPath(new URL('.', import.meta.url));
+const appDir = join(here, 'app');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
 };
 
-const browser = await chromium.launch({
-  executablePath: '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome',
-  args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--disable-gpu-sandbox', '--no-sandbox'],
-});
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-const errors = [];
-page.on('pageerror', (err) => errors.push(err.message));
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-
-await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
-await page.click('#samples');
-await page.waitForFunction(() => document.querySelectorAll('#tray .thumb').length === 2, { timeout: 15000 });
-check('sample photos loaded', true);
-
-// Apply the Neon Nights preset: layout, grade and caption all change.
-await page.click('[data-preset="neon"]');
-await new Promise((r) => setTimeout(r, 400));
-check('preset sets caption', (await page.inputValue('#caption')) === 'Neon Nights');
-check('preset sets subtitle', (await page.inputValue('#subtitle')) === 'Boulevard after dark');
-
-// Switch layout + grade + caption by hand.
-await page.click('[data-layout="grid"]');
-await page.click('[data-grade="dusk"]');
-await page.fill('#caption', 'Test Cover');
-await page.fill('#subtitle', 'Testing the maker');
-check('caption input holds typed value', (await page.inputValue('#caption')) === 'Test Cover');
-await new Promise((r) => setTimeout(r, 400));
-
-// Drag the middle panel to pan it.
-const box = await page.locator('#cover').boundingBox();
-await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-await page.mouse.down();
-await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 - 30, { steps: 8 });
-await page.mouse.up();
-check('panel drag without error', errors.length === 0, errors.join('; '));
-
-// Export at each size and validate the PNG.
-for (const [key, w, h] of [['1920x1080', 1920, 1080], ['1080x1080', 1080, 1080], ['1080x1350', 1080, 1350]]) {
-  await page.click(`[data-size="${key}"]`);
-  await new Promise((r) => setTimeout(r, 300));
-  const [download] = await Promise.all([
-    page.waitForEvent('download', { timeout: 15000 }),
-    page.click('#export'),
-  ]);
-  const path = await download.path();
-  const buf = readFileSync(path);
-  const pngSig = buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  const pw = buf.readUInt32BE(16);
-  const ph = buf.readUInt32BE(20);
-  check(`export ${key}`, pngSig && pw === w && ph === h, `got ${pw}x${ph}, ${buf.length} bytes`);
+function serveApp() {
+  return new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      const path = req.url === '/' ? '/index.html' : String(req.url).split('?')[0];
+      const file = join(appDir, path);
+      if (!file.startsWith(appDir) || !existsSync(file) || !statSync(file).isFile()) {
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+      res.end(readFileSync(file));
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
 }
 
-check('no page errors', errors.length === 0, errors.join('; '));
-await browser.close();
-server.kill();
-process.exit(failures ? 1 : 0);
+async function launchBrowser() {
+  const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+  try {
+    return await chromium.launch({ args });
+  } catch (e) {
+    return await chromium.launch({
+      args,
+      executablePath: '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome',
+    });
+  }
+}
+
+// A fingerprint of the current cover: the canvas drawn down to a 32x32
+// thumbnail, hashed pixel by pixel — dense enough to catch title changes.
+function fingerprintScript() {
+  return () => {
+    const c = window.__viceCover.canvas;
+    const thumb = document.createElement('canvas');
+    thumb.width = 32;
+    thumb.height = 32;
+    const tctx = thumb.getContext('2d');
+    tctx.drawImage(c, 0, 0, 32, 32);
+    const d = tctx.getImageData(0, 0, 32, 32).data;
+    let h1 = 0;
+    let h2 = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      h1 = (h1 * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) >>> 0;
+      h2 = (h2 * 17 + d[i] * 5 + d[i + 1] + d[i + 2] * 11) >>> 0;
+    }
+    return `${c.width}x${c.height}:${h1.toString(36)}-${h2.toString(36)}`;
+  };
+}
+
+async function main() {
+  const checks = [];
+  const check = (name, ok) => {
+    checks.push([name, ok]);
+    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);
+  };
+  const { server, port } = await serveApp();
+  const base = `http://127.0.0.1:${port}`;
+  const browser = await launchBrowser();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  try {
+    await page.goto(`${base}/index.html`);
+    await page.waitForFunction(() => window.__viceCover && window.__viceCover.canvas.width > 0);
+    await page.waitForTimeout(500);
+
+    // 1. App loads with no page errors.
+    check('1. app loads, canvas present, no page errors', errors.length === 0);
+
+    // 2. Photos loaded: the cover is not a blank dark canvas.
+    const brightness = await page.evaluate(() => {
+      const c = window.__viceCover.canvas;
+      const ctx = c.getContext('2d');
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 401 * 4) { sum += d[i] + d[i + 1] + d[i + 2]; n++; }
+      return sum / n;
+    });
+    check('2. sample photos render (cover is not blank)', brightness > 40);
+
+    // 3. Layout switch changes the render.
+    const fp0 = await page.evaluate(fingerprintScript());
+    await page.click('[data-layout="grid"]');
+    await page.waitForTimeout(300);
+    const fpGrid = await page.evaluate(fingerprintScript());
+    check('3. layout switch re-renders (Hero -> Grid 2x2)', fpGrid !== fp0);
+
+    // 4. Preset apply updates the caption and the render.
+    await page.click('[data-preset="neonNights"]');
+    await page.waitForTimeout(300);
+    const title = await page.inputValue('#titleInput');
+    check('4. preset applies (Neon Nights sets title)', title === 'NEON NIGHTS');
+
+    // 5. Grade switch changes the render.
+    const fpNeon = await page.evaluate(fingerprintScript());
+    await page.click('[data-grade="noir"]');
+    await page.waitForTimeout(300);
+    const fpNoir = await page.evaluate(fingerprintScript());
+    check('5. grade switch re-renders (Neon -> Noir)', fpNoir !== fpNeon);
+
+    // 6. Size switch changes the canvas dimensions.
+    await page.click('[data-size="1080x1350"]');
+    await page.waitForTimeout(300);
+    const dims = await page.evaluate(() => {
+      const c = window.__viceCover.canvas;
+      return `${c.width}x${c.height}`;
+    });
+    check('6. size switch resizes canvas (1080x1350)', dims === '1080x1350');
+
+    // 7. Title edit changes the render.
+    const fpBefore = await page.evaluate(fingerprintScript());
+    await page.fill('#titleInput', 'PALM CITY');
+    await page.waitForTimeout(300);
+    const fpAfter = await page.evaluate(fingerprintScript());
+    check('7. caption edit re-renders (title -> PALM CITY)', fpAfter !== fpBefore);
+
+    // 8. Export produces a PNG download.
+    const download = page.waitForEvent('download', { timeout: 10000 });
+    await page.click('#exportBtn');
+    const dl = await download;
+    const path = await dl.path();
+    const header = readFileSync(path).subarray(0, 8);
+    const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47;
+    check('8. export downloads a PNG file', isPng && dl.suggestedFilename().endsWith('.png'));
+
+    // 9. Per-panel zoom slider changes the render.
+    await page.click('[data-layout="hero"]');
+    await page.waitForTimeout(200);
+    const fpZ0 = await page.evaluate(fingerprintScript());
+    await page.evaluate(() => {
+      const slider = document.querySelector('.panel-row input[type="range"]');
+      slider.value = '2';
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await page.waitForTimeout(300);
+    const fpZ1 = await page.evaluate(fingerprintScript());
+    check('9. panel zoom slider re-renders', fpZ1 !== fpZ0);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+  const passed = checks.filter(([, ok]) => ok).length;
+  console.log(`\n${passed}/${checks.length} checks passed`);
+  process.exit(passed === checks.length ? 0 : 1);
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
