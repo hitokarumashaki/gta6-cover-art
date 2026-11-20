@@ -1,24 +1,26 @@
-/* Vice Cover v5 — dark editor, neon Vice City accents. */
 :root {
-  --bg: #0d0016;
-  --panel: #1a0b26;
-  --panel-2: #241233;
-  --ink: #f5efff;
-  --muted: #b9a8cc;
-  --pink: #ff2e88;
-  --gold: #ffd23f;
-  --cyan: #2ee6ff;
+  --bg: #0d0616;
+  --panel: #1b0f2b;
+  --panel-2: #241338;
   --line: #3a2350;
+  --ink: #f5eefc;
+  --muted: #b9a6cc;
+  --pink: #ff2e88;
+  --orange: #ff7a1a;
+  --gold: #ffd166;
+  --cyan: #37e0d8;
+  --radius: 14px;
 }
 
 * { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
-  padding: 0;
+html, body { margin: 0; padding: 0; }
+
+body {
   background: var(--bg);
   color: var(--ink);
-  font-family: "Helvetica Neue", Arial, sans-serif;
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
 }
 
 .topbar {
@@ -27,47 +29,43 @@ html, body {
   gap: 16px;
   padding: 14px 22px;
   border-bottom: 2px solid var(--pink);
-  background: linear-gradient(90deg, #1c0533, #2b0a1e);
+  background: linear-gradient(90deg, #160a24, #1b0f2b 60%, #160a24);
 }
 
 .brand {
-  font-family: "Arial Black", Impact, sans-serif;
   font-size: 26px;
+  font-weight: 900;
   letter-spacing: 2px;
-  background: linear-gradient(90deg, #fff7ae, #ffd23f, #ff8a3d, #ff2e88, #7b2fff);
+  background: linear-gradient(90deg, var(--gold), var(--orange) 35%, var(--pink) 65%, #a855f7);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  white-space: nowrap;
 }
 
-.brand-star { color: var(--gold); }
+.tagline { color: var(--muted); font-size: 14px; }
 
-.tagline {
-  color: var(--muted);
-  font-size: 14px;
-  letter-spacing: 0.4px;
-}
-
-.editor {
+.workspace {
   display: grid;
-  grid-template-columns: minmax(420px, 1fr) 340px;
-  gap: 22px;
-  padding: 22px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
   max-width: 1280px;
   margin: 0 auto;
+  padding: 20px;
+  align-items: start;
 }
 
-.preview-col { min-width: 0; }
+.stage { min-width: 0; }
 
-.canvas-wrap {
-  background: #000;
+.preview-wrap {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--radius);
+  background: #000;
   overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .55);
 }
 
-#coverCanvas {
+#preview {
   display: block;
   width: 100%;
   height: auto;
@@ -75,195 +73,141 @@ html, body {
   touch-action: none;
 }
 
-#coverCanvas:active { cursor: grabbing; }
+#preview:active { cursor: grabbing; }
 
-.status {
-  margin: 12px 2px 4px;
-  color: var(--gold);
-  font-size: 14px;
-  min-height: 20px;
-}
+.status { color: var(--gold); margin: 12px 2px 4px; font-weight: 600; }
+.hint { color: var(--muted); margin: 4px 2px 0; font-size: 13px; }
 
-.hint {
-  margin: 2px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.controls {
+.panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px 18px;
-  height: fit-content;
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  position: sticky;
+  top: 16px;
 }
 
-.controls h2 {
-  margin: 18px 0 8px;
+.group h2 {
+  margin: 0 0 8px;
   font-size: 12px;
   letter-spacing: 2.5px;
   text-transform: uppercase;
   color: var(--cyan);
 }
 
-.controls h2:first-child { margin-top: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
-.chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.chip {
-  appearance: none;
+.chips button {
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--ink);
   border-radius: 999px;
-  padding: 8px 13px;
-  font-size: 13px;
-  font-weight: 700;
+  padding: 7px 13px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.chip:hover { border-color: var(--pink); }
-
-.chip.active {
+.chips button:hover { border-color: var(--pink); }
+.chips button.active {
   background: var(--pink);
   border-color: var(--pink);
   color: #fff;
 }
 
-.field {
-  display: block;
-  margin-bottom: 10px;
-}
+.field { display: block; font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+.field + .field { margin-top: 10px; }
 
-.field span {
+.field input {
   display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--muted);
-  letter-spacing: 1px;
+  width: 100%;
+  margin-top: 5px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: #120a1e;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  letter-spacing: .5px;
   text-transform: uppercase;
 }
 
-.field input {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: #12061d;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.field input:focus {
-  outline: 2px solid var(--pink);
-  border-color: var(--pink);
-}
-
-.panel-list { display: grid; gap: 8px; }
+.field input:focus { outline: 2px solid var(--pink); outline-offset: 1px; }
 
 .panel-row {
-  display: grid;
-  grid-template-columns: 1fr 110px auto;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel-2);
+  border-radius: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background: #160b26;
 }
 
-.panel-row.selected {
-  border-color: var(--gold);
-  box-shadow: 0 0 0 1px var(--gold);
-}
+.panel-row.selected { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
 
-.panel-name {
-  appearance: none;
-  background: none;
-  border: 0;
-  color: var(--ink);
+.panel-row .row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 700;
-  text-align: left;
-  cursor: pointer;
-  padding: 0;
+  margin-bottom: 8px;
 }
+
+.panel-row .row-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .panel-row input[type="range"] {
   width: 100%;
   accent-color: var(--pink);
+  cursor: pointer;
 }
 
 .upload-btn {
-  display: inline-block;
-  padding: 6px 10px;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  background: transparent;
   border-radius: 999px;
-  background: var(--cyan);
-  color: #04121a;
+  padding: 4px 10px;
+  font: inherit;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 20px;
-}
+.upload-btn:hover { background: rgba(55, 224, 216, .12); }
 
-.primary, .secondary {
-  appearance: none;
-  border: 0;
-  border-radius: 8px;
-  padding: 12px 18px;
-  font-size: 15px;
-  font-weight: 800;
+.actions { display: flex; gap: 10px; }
+
+.actions button {
+  flex: 1;
+  padding: 12px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.primary {
-  flex: 1;
-  background: linear-gradient(90deg, var(--pink), #ff8a3d);
+.actions button.primary {
+  background: linear-gradient(90deg, var(--pink), var(--orange));
+  border: none;
   color: #fff;
 }
 
-.secondary {
-  background: var(--panel-2);
-  color: var(--ink);
-  border: 1px solid var(--line);
-}
+.actions button:hover { filter: brightness(1.12); }
 
-.note {
-  margin: 14px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-/* Screenshot mode: the cover fills the frame, no editor chrome. */
-body.shot-cover .topbar,
-body.shot-cover .controls,
-body.shot-cover .status,
-body.shot-cover .hint { display: none; }
-
-body.shot-cover .editor {
-  display: block;
-  padding: 0;
-  max-width: none;
-}
-
-body.shot-cover .canvas-wrap {
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
+.fineprint { color: var(--muted); font-size: 12.5px; margin: 0; }
 
 @media (max-width: 900px) {
-  .editor { grid-template-columns: 1fr; }
+  .workspace { grid-template-columns: 1fr; }
+  .panel { position: static; }
+  .brand { font-size: 21px; }
 }
