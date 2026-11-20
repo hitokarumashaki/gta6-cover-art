@@ -1,349 +1,266 @@
-// Vice Cover — cover rendering: panels, photos, grades and lettering.
-// Everything here draws on a canvas; main.js owns state and the editor UI.
+// Vice Cover v8 — drawing engine: one hero GTA-style cover on a 2D canvas.
+// A cover is three photo panels (hero left, two stacked right), a bold colour
+// grade over the photos, and huge gradient caption lettering with the subtitle
+// set inside a dark capsule so it reads over any photo. Every measurement is
+// derived from the canvas size, so the same state draws at any export size
+// (1080x1080, 1080x1350, 1920x1080).
 
-/** Panel rectangles in unit coordinates [x, y, w, h] per layout. */
-export const LAYOUTS = [
-  {
-    id: 'hero-left',
-    name: 'Hero Left',
-    panels: [
-      [0, 0, 0.66, 1],
-      [0.66, 0, 0.34, 0.5],
-      [0.66, 0.5, 0.34, 0.5],
+/** The single layout: hero panel left, two stacked panels right. Fractions
+ * of the cover; the gutter is already split between the panels. */
+export function heroRects(w, h, gutter) {
+  const g = gutter / w;
+  const gh = gutter / h;
+  return [
+    { x: 0, y: 0, w: 0.62 - g / 2, h: 1 },
+    { x: 0.62 + g / 2, y: 0, w: 0.38 - g / 2, h: 0.5 - gh / 2 },
+    { x: 0.62 + g / 2, y: 0.5 + gh / 2, w: 0.38 - g / 2, h: 0.5 - gh / 2 },
+  ];
+}
+
+/** Colour grades: each is a poster-strength treatment painted over every
+ * photo. Two layers: an 'overlay' tint that blends with the photo's light
+ * (rich, stylised colour, like a printed poster) and a 'wash' that sets the
+ * mood. Alphas are deliberately strong — a faint tint reads as a mistake,
+ * a bold one reads as a grade. */
+export const GRADES = {
+  sunset: {
+    overlay: [
+      { at: 0, color: 'rgba(255, 190, 60, 0.55)' },
+      { at: 0.45, color: 'rgba(255, 120, 40, 0.5)' },
+      { at: 1, color: 'rgba(220, 30, 130, 0.55)' },
+    ],
+    wash: [
+      { at: 0, color: 'rgba(255, 170, 50, 0.10)' },
+      { at: 0.5, color: 'rgba(255, 100, 50, 0.12)' },
+      { at: 1, color: 'rgba(190, 20, 110, 0.34)' },
     ],
   },
-  {
-    id: 'hero-right',
-    name: 'Hero Right',
-    panels: [
-      [0, 0, 0.34, 0.5],
-      [0, 0.5, 0.34, 0.5],
-      [0.34, 0, 0.66, 1],
+  neon: {
+    overlay: [
+      { at: 0, color: 'rgba(0, 230, 255, 0.55)' },
+      { at: 0.5, color: 'rgba(150, 60, 255, 0.5)' },
+      { at: 1, color: 'rgba(255, 0, 160, 0.6)' },
+    ],
+    wash: [
+      { at: 0, color: 'rgba(0, 200, 255, 0.14)' },
+      { at: 0.5, color: 'rgba(120, 40, 220, 0.16)' },
+      { at: 1, color: 'rgba(255, 0, 150, 0.34)' },
     ],
   },
-  {
-    id: 'triptych',
-    name: 'Triptych',
-    panels: [
-      [0, 0, 1 / 3, 1],
-      [1 / 3, 0, 1 / 3, 1],
-      [2 / 3, 0, 1 / 3, 1],
+  dusk: {
+    overlay: [
+      { at: 0, color: 'rgba(110, 60, 200, 0.55)' },
+      { at: 0.55, color: 'rgba(50, 50, 160, 0.5)' },
+      { at: 1, color: 'rgba(15, 10, 70, 0.6)' },
+    ],
+    wash: [
+      { at: 0, color: 'rgba(100, 50, 190, 0.16)' },
+      { at: 0.6, color: 'rgba(45, 45, 150, 0.18)' },
+      { at: 1, color: 'rgba(8, 8, 55, 0.38)' },
     ],
   },
-  {
-    id: 'quad',
-    name: 'Quad',
-    panels: [
-      [0, 0, 0.5, 0.5],
-      [0.5, 0, 0.5, 0.5],
-      [0, 0.5, 0.5, 0.5],
-      [0.5, 0.5, 0.5, 0.5],
-    ],
-  },
-  { id: 'full', name: 'Full Bleed', panels: [[0, 0, 1, 1]] },
-];
+};
 
-/** Colour grades: photo filter plus a tint wash over the whole cover. */
-export const GRADES = [
-  {
-    id: 'sunset',
-    name: 'Sunset',
-    saturate: 1.65,
-    contrast: 1.28,
-    brightness: 1.02,
-    tint: ['#ff2e88', '#ff9a3d'],
-    tintAlpha: 0.16,
-    blend: 'overlay',
-  },
-  {
-    id: 'neon',
-    name: 'Neon',
-    saturate: 1.8,
-    contrast: 1.2,
-    brightness: 1.0,
-    tint: ['#ff2e88', '#2ee6d6'],
-    tintAlpha: 0.2,
-    blend: 'overlay',
-  },
-  {
-    id: 'dusk',
-    name: 'Dusk',
-    saturate: 1.45,
-    contrast: 1.22,
-    brightness: 0.96,
-    tint: ['#8b5cf6', '#ff2e88'],
-    tintAlpha: 0.2,
-    blend: 'soft-light',
-  },
-  {
-    id: 'noir',
-    name: 'Noir',
-    saturate: 0.55,
-    contrast: 1.45,
-    brightness: 0.98,
-    tint: ['#1a1a2e', '#000000'],
-    tintAlpha: 0.18,
-    blend: 'multiply',
-  },
-];
+/** Punch applied to every photo so it reads as poster art, not a snapshot. */
+const PHOTO_FILTER = 'saturate(1.65) contrast(1.28) brightness(1.04)';
 
-/** Export sizes: the common post sizes. */
-export const SIZES = [
-  { id: '1080x1080', name: 'Square · 1080 × 1080', w: 1080, h: 1080 },
-  { id: '1080x1350', name: 'Portrait · 1080 × 1350', w: 1080, h: 1350 },
-  { id: '1920x1080', name: 'Wide · 1920 × 1080', w: 1920, h: 1080 },
-];
-
-/** One-click preset covers: layout, grade, caption, size and photos. */
-export const PRESETS = [
-  {
-    id: 'sunset-heist',
-    name: 'Sunset Heist',
-    layout: 'hero-left',
-    grade: 'sunset',
-    title: 'VICE CITY',
-    subtitle: 'SUNSET HEIST',
-    kicker: 'A FAN-MADE POSTER',
-    size: '1920x1080',
-    photos: ['boulevard', 'pier'],
-  },
-  {
-    id: 'neon-nights',
-    name: 'Neon Nights',
-    layout: 'triptych',
-    grade: 'neon',
-    title: 'NEON NIGHTS',
-    subtitle: 'VICE AFTER DARK',
-    kicker: 'A FAN-MADE POSTER',
-    size: '1080x1080',
-    photos: ['pier', 'boulevard', 'pier'],
-  },
-  {
-    id: 'dusk-drive',
-    name: 'Dusk Drive',
-    layout: 'hero-right',
-    grade: 'dusk',
-    title: 'DUSK DRIVE',
-    subtitle: 'LAST LIGHT',
-    kicker: 'A FAN-MADE POSTER',
-    size: '1080x1350',
-    photos: ['boulevard', 'pier'],
-  },
-  {
-    id: 'vice-sunrise',
-    name: 'Vice Sunrise',
-    layout: 'quad',
-    grade: 'sunset',
-    title: 'VICE SUNRISE',
-    subtitle: 'NEW DAY IN THE CITY',
-    kicker: 'A FAN-MADE POSTER',
-    size: '1080x1080',
-    photos: ['pier', 'boulevard', 'pier', 'boulevard'],
-  },
-  {
-    id: 'midnight-heat',
-    name: 'Midnight Heat',
-    layout: 'full',
-    grade: 'noir',
-    title: 'MIDNIGHT HEAT',
-    subtitle: 'NO WAY OUT',
-    kicker: 'A FAN-MADE POSTER',
-    size: '1920x1080',
-    photos: ['boulevard'],
-  },
-];
-
-export function layoutById(id) {
-  return LAYOUTS.find((l) => l.id === id) ?? LAYOUTS[0];
-}
-
-export function gradeById(id) {
-  return GRADES.find((g) => g.id === id) ?? GRADES[0];
-}
-
-export function sizeById(id) {
-  return SIZES.find((s) => s.id === id) ?? SIZES[0];
-}
-
-export function presetById(id) {
-  return PRESETS.find((p) => p.id === id) ?? PRESETS[0];
-}
-
-/**
- * Draw one photo into a panel with cover-fit, overflow-based pan and zoom.
- * pan 0..1 slides the photo horizontally; vertical offset is biased high
- * (0.18) so faces stay in frame on wide cinematic crops.
- */
-function drawPhoto(ctx, img, x, y, w, h, pan, zoom) {
-  const iw = img.naturalWidth || img.width;
-  const ih = img.naturalHeight || img.height;
-  if (!iw || !ih) return;
-  const base = Math.max(w / iw, h / ih) * Math.max(1, zoom);
-  const dw = iw * base;
-  const dh = ih * base;
-  const ox = x + (w - dw) * pan;
-  const oy = y + (h - dh) * 0.18;
-  ctx.drawImage(img, ox, oy, dw, dh);
-}
-
-function roundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
+/** Draws one photo into a panel rect, cover-fit, with the panel's zoom and
+ * pan. The pan is clamped to the photo's overflow, so a wide cinematic crop
+ * can never push the subject out of the frame. */
+export function drawPanelPhoto(ctx, img, rect, zoom, ox, oy) {
+  const { x, y, w, h } = rect;
+  ctx.save();
   ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-}
-
-/** Shrink the title font until it fits the cover width; never clips. */
-function fitTitleSize(ctx, text, maxWidth, startSize) {
-  let size = startSize;
-  for (;;) {
-    ctx.font = `900 ${size}px "Arial Black", Impact, "Segoe UI", sans-serif`;
-    if (ctx.measureText(text).width <= maxWidth || size <= 24) return size;
-    size = Math.max(24, Math.floor(size * 0.92));
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  if (img) {
+    const base = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    const s = base * Math.max(0.5, zoom || 1);
+    const dw = img.naturalWidth * s;
+    const dh = img.naturalHeight * s;
+    const maxOx = Math.max(0, (dw - w) / 2) / w;
+    const maxOy = Math.max(0, (dh - h) / 2) / h;
+    const cx = Math.max(-maxOx, Math.min(maxOx, ox || 0));
+    const cy = Math.max(-maxOy, Math.min(maxOy, oy || 0));
+    try { ctx.filter = PHOTO_FILTER; } catch { /* older canvas */ }
+    ctx.drawImage(img, x + (w - dw) / 2 + cx * w, y + (h - dh) / 2 + cy * h, dw, dh);
+    try { ctx.filter = 'none'; } catch { /* older canvas */ }
+  } else {
+    ctx.fillStyle = '#241a33';
+    ctx.fillRect(x, y, w, h);
   }
-}
-
-/**
- * Render a cover into ctx at W x H.
- * state: { layout, grade, title, subtitle, kicker, panels: [{photo, pan, zoom}] }
- * images: Map from photo id to a loaded image (HTMLImageElement or canvas).
- */
-export function renderCover(ctx, W, H, state, images) {
-  const layout = layoutById(state.layout);
-  const grade = gradeById(state.grade);
-  const gap = Math.max(3, Math.round(Math.min(W, H) * 0.004));
-
-  ctx.save();
-  ctx.fillStyle = '#0d0a14';
-  ctx.fillRect(0, 0, W, H);
-
-  // Panels: photos with the grade's filter, thin gutters between them.
-  for (let i = 0; i < layout.panels.length; i++) {
-    const [ux, uy, uw, uh] = layout.panels[i];
-    const x = ux * W + (ux > 0 ? gap / 2 : 0);
-    const y = uy * H + (uy > 0 ? gap / 2 : 0);
-    const w = uw * W - (ux > 0 ? gap / 2 : 0) - (ux + uw < 1 ? gap / 2 : 0);
-    const h = uh * H - (uy > 0 ? gap / 2 : 0) - (uy + uh < 1 ? gap / 2 : 0);
-    const panel = state.panels[i] ?? { photo: null, pan: 0.5, zoom: 1 };
-    const img = panel.photo ? images.get(panel.photo) : null;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
-    if (img) {
-      ctx.filter = `saturate(${grade.saturate}) contrast(${grade.contrast}) brightness(${grade.brightness})`;
-      drawPhoto(ctx, img, x, y, w, h, panel.pan ?? 0.5, panel.zoom ?? 1);
-      ctx.filter = 'none';
-    } else {
-      const g = ctx.createLinearGradient(x, y, x + w, y + h);
-      g.addColorStop(0, '#2b1040');
-      g.addColorStop(1, '#120a24');
-      ctx.fillStyle = g;
-      ctx.fillRect(x, y, w, h);
-    }
-    ctx.restore();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-    ctx.lineWidth = Math.max(1, Math.round(Math.min(W, H) * 0.002));
-    ctx.strokeRect(x, y, w, h);
-  }
-
-  // Grade tint wash over the whole cover.
-  const tint = ctx.createLinearGradient(0, 0, W, H);
-  tint.addColorStop(0, grade.tint[0]);
-  tint.addColorStop(1, grade.tint[1]);
-  ctx.save();
-  ctx.globalCompositeOperation = grade.blend;
-  ctx.globalAlpha = grade.tintAlpha;
-  ctx.fillStyle = tint;
-  ctx.fillRect(0, 0, W, H);
   ctx.restore();
+}
 
-  // Vignette: darken the corners so the poster feels printed.
-  const vig = ctx.createRadialGradient(
-    W / 2, H / 2, Math.min(W, H) * 0.42,
-    W / 2, H / 2, Math.max(W, H) * 0.75,
-  );
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.34)');
+/** Paints a grade over a panel rect: an 'overlay' tint blended with the
+ * photo's light, then a colour wash, then a vignette for poster drama. */
+export function drawGrade(ctx, rect, grade) {
+  const g = GRADES[grade] || GRADES.sunset;
+  const paint = (stops, composite) => {
+    if (!stops.length) return;
+    const grad = ctx.createLinearGradient(0, rect.y, 0, rect.y + rect.h);
+    for (const stop of stops) grad.addColorStop(stop.at, stop.color);
+    ctx.save();
+    ctx.globalCompositeOperation = composite;
+    ctx.fillStyle = grad;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.restore();
+  };
+  paint(g.overlay, 'overlay');
+  paint(g.wash, 'source-over');
+  // Vignette: darkened corners pull the eye to the middle of the panel.
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const r = Math.hypot(rect.w, rect.h) / 2;
+  const vig = ctx.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
+  vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  vig.addColorStop(1, 'rgba(8, 2, 18, 0.38)');
+  ctx.save();
   ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.restore();
+}
 
-  // Bottom scrim so the lettering always reads.
-  const scrim = ctx.createLinearGradient(0, H * 0.6, 0, H);
-  scrim.addColorStop(0, 'rgba(5,2,12,0)');
-  scrim.addColorStop(0.55, 'rgba(5,2,12,0.45)');
-  scrim.addColorStop(1, 'rgba(5,2,12,0.78)');
-  ctx.fillStyle = scrim;
-  ctx.fillRect(0, H * 0.6, W, H * 0.4);
-
-  // Kicker, then the big gradient title, then the subtitle pill.
-  // Lettering lives in the bottom ~30% so no face is ever covered.
-  const cx = W / 2;
-  const title = (state.title || 'VICE CITY').toUpperCase();
-  const subtitle = (state.subtitle || '').toUpperCase();
-  const kicker = (state.kicker || '').toUpperCase();
-
+/** Bold poster lettering: a five-stop gradient fill, thick dark outline, hard
+ * 3D offset shadow and a soft drop shadow. The title is the cover's loudest
+ * element: it starts at 18% of the cover height and auto-fits to the width,
+ * so it never clips and always sits above the subtitle capsule. */
+export function drawTitle(ctx, text, w, h, opts) {
+  const clean = (text || '').trim().toUpperCase();
+  if (!clean) return null;
+  let size = h * 0.18 * (opts.scale || 1);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-
-  const kickerSize = Math.max(14, Math.round(H * 0.026));
-  if (kicker) {
-    ctx.font = `700 ${kickerSize}px "Segoe UI", system-ui, sans-serif`;
-    try { ctx.letterSpacing = `${Math.round(kickerSize * 0.32)}px`; } catch { /* older canvas */ }
-    ctx.fillStyle = '#2ee6d6';
-    ctx.fillText(kicker, cx, H * 0.72);
-    try { ctx.letterSpacing = '0px'; } catch { /* older canvas */ }
+  const setFont = () => {
+    ctx.font = `900 ${size}px "Arial Black", "Helvetica Neue", Arial, sans-serif`;
+    try { ctx.letterSpacing = `${Math.round(size * 0.04)}px`; } catch { /* older canvas */ }
+  };
+  setFont();
+  while (ctx.measureText(clean).width > w * 0.94 && size > 14) {
+    size -= 2;
+    setFont();
   }
-
-  const titleSize = fitTitleSize(ctx, title, W * 0.92, Math.round(H * 0.15));
-  const titleGrad = ctx.createLinearGradient(0, H * 0.74, W, H * 0.74);
-  titleGrad.addColorStop(0, '#ff2e88');
-  titleGrad.addColorStop(0.28, '#ff9a3d');
-  titleGrad.addColorStop(0.5, '#ffe259');
-  titleGrad.addColorStop(0.74, '#2ee6d6');
-  titleGrad.addColorStop(1, '#8b5cf6');
-  ctx.font = `900 ${titleSize}px "Arial Black", Impact, "Segoe UI", sans-serif`;
+  // The title sits above the subtitle capsule, both near the bottom edge.
+  const capsuleH = Math.max(28, h * 0.055);
+  const gap = h * 0.02;
+  const baseline = h - h * 0.03 - capsuleH - gap;
+  // Five-stop hot poster gradient: white -> pale yellow -> gold -> hot orange
+  // -> deep pink. The last stop is the title's own colour when one is set.
+  const grad = ctx.createLinearGradient(0, baseline - size, 0, baseline);
+  grad.addColorStop(0, '#ffffff');
+  grad.addColorStop(0.3, '#fff3a0');
+  grad.addColorStop(0.55, '#ffe95c');
+  grad.addColorStop(0.8, '#ff9a3c');
+  grad.addColorStop(1, '#ff5e7a');
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(10,2,20,0.6)';
-  ctx.lineWidth = Math.max(2, Math.round(titleSize * 0.09));
-  const titleY = H * 0.87;
-  ctx.strokeText(title, cx, titleY);
-  ctx.fillStyle = titleGrad;
-  ctx.fillText(title, cx, titleY);
-
-  if (subtitle) {
-    const subSize = Math.max(13, Math.round(H * 0.032));
-    ctx.font = `700 ${subSize}px "Segoe UI", system-ui, sans-serif`;
-    try { ctx.letterSpacing = `${Math.round(subSize * 0.28)}px`; } catch { /* older canvas */ }
-    const tw = ctx.measureText(subtitle).width;
-    const padX = Math.round(subSize * 0.9);
-    const pillW = tw + padX * 2;
-    const pillH = Math.round(subSize * 2.1);
-    const pillX = cx - pillW / 2;
-    const pillY = H * 0.9;
-    ctx.fillStyle = 'rgba(10,6,20,0.85)';
-    roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(subtitle, cx, pillY + pillH / 2 + subSize * 0.36);
-    try { ctx.letterSpacing = '0px'; } catch { /* older canvas */ }
-  }
-
+  ctx.lineWidth = Math.max(3, size * 0.17);
+  ctx.strokeStyle = '#14081f';
+  // Hard 3D offset shadow: the title sits proud of the photo.
+  const off = Math.max(3, size * 0.06);
+  ctx.save();
+  ctx.translate(off, off);
+  ctx.strokeStyle = 'rgba(10, 2, 20, 0.9)';
+  ctx.strokeText(clean, w / 2, baseline);
+  ctx.fillStyle = 'rgba(10, 2, 20, 0.9)';
+  ctx.fillText(clean, w / 2, baseline);
   ctx.restore();
+  // Soft drop shadow + main stroke + gradient fill.
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+  ctx.shadowBlur = size * 0.18;
+  ctx.shadowOffsetY = size * 0.05;
+  ctx.strokeStyle = '#14081f';
+  ctx.strokeText(clean, w / 2, baseline);
+  ctx.fillStyle = grad;
+  ctx.fillText(clean, w / 2, baseline);
+  // Thin bright rim on the top edge of the letters for extra pop.
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+  ctx.lineWidth = Math.max(1, size * 0.02);
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.strokeText(clean, w / 2, baseline - size * 0.02);
+  ctx.strokeStyle = '#14081f';
+  return { baseline, size, capsuleH, gap };
 }
 
-/** Render a cover to a fresh canvas of W x H and return it. */
-export function renderCoverToCanvas(W, H, state, images) {
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
+/** Subtitle inside a dark rounded capsule, centred under the title. The
+ * capsule guarantees the subtitle reads over any photo, bright or dark. */
+export function drawSubtitleCapsule(ctx, text, w, h, titleInfo) {
+  const clean = (text || '').trim().toUpperCase();
+  if (!clean || !titleInfo) return;
+  let size = Math.max(13, h * 0.032);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const setFont = () => {
+    ctx.font = `800 ${size}px "Arial Black", Arial, sans-serif`;
+    try { ctx.letterSpacing = `${Math.round(size * 0.35)}px`; } catch { /* older canvas */ }
+  };
+  setFont();
+  while (ctx.measureText(clean).width > w * 0.78 && size > 10) {
+    size -= 1;
+    setFont();
+  }
+  const textW = ctx.measureText(clean).width;
+  const padX = size * 1.1;
+  const capsuleW = textW + padX * 2;
+  const capsuleH = titleInfo.capsuleH;
+  const cx = w / 2;
+  const cy = h - h * 0.03 - capsuleH / 2;
+  const x = cx - capsuleW / 2;
+  const y = cy - capsuleH / 2;
+  // Dark capsule with a thin warm rim.
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+  ctx.shadowBlur = size * 0.5;
+  ctx.shadowOffsetY = size * 0.12;
+  ctx.fillStyle = 'rgba(12, 4, 22, 0.82)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, capsuleW, capsuleH, capsuleH / 2);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(255, 210, 62, 0.55)';
+  ctx.lineWidth = Math.max(1, size * 0.06);
+  ctx.beginPath();
+  ctx.roundRect(x, y, capsuleW, capsuleH, capsuleH / 2);
+  ctx.stroke();
+  // Bright yellow letterspaced text, centred in the capsule.
+  ctx.fillStyle = '#ffd23e';
+  ctx.fillText(clean, cx, cy + size * 0.36);
+}
+
+/**
+ * Draws the whole cover. `state` holds grade, caption, subtitle,
+ * captionScale and panels: [{ img, zoom, ox, oy }].
+ */
+export function drawCover(canvas, state) {
   const ctx = canvas.getContext('2d');
-  renderCover(ctx, W, H, state, images);
-  return canvas;
+  const { width: w, height: h } = canvas;
+  const gutter = Math.max(4, Math.round(w * 0.007));
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  const rects = heroRects(w, h, gutter);
+  const panels = state.panels || [];
+  rects.forEach((r, i) => {
+    const px = { x: r.x * w, y: r.y * h, w: r.w * w, h: r.h * h };
+    const p = panels[i] || {};
+    drawPanelPhoto(ctx, p.img || null, px, p.zoom, p.ox, p.oy);
+    drawGrade(ctx, px, state.grade || 'sunset');
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = Math.max(2, gutter * 0.5);
+    ctx.strokeRect(px.x, px.y, px.w, px.h);
+  });
+  // Scrim behind the lettering so it reads over any photo: dark at the
+  // bottom where the title and capsule sit, fading out above them.
+  const scrim = ctx.createLinearGradient(0, h * 0.5, 0, h);
+  scrim.addColorStop(0, 'rgba(10, 4, 20, 0)');
+  scrim.addColorStop(0.55, 'rgba(10, 4, 20, 0.35)');
+  scrim.addColorStop(1, 'rgba(10, 4, 20, 0.72)');
+  ctx.fillStyle = scrim;
+  ctx.fillRect(0, h * 0.5, w, h * 0.5);
+  const info = drawTitle(ctx, state.caption, w, h, { scale: state.captionScale || 1 });
+  drawSubtitleCapsule(ctx, state.subtitle, w, h, info);
+  // Poster frame.
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(3, w * 0.006);
+  ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, w - ctx.lineWidth, h - ctx.lineWidth);
 }
