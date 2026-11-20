@@ -3,60 +3,98 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vice Cover — GTA 6 Cover Art Maker</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="./style.css">
+<title>Vice Cover — GTA 6 Cover Art Maker</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
-  <span class="brand">★ VICE COVER</span>
-  <span class="tagline">GTA 6 cover art maker — photo in, poster out</span>
-</header>
-<main class="workspace">
-  <section class="stage">
-    <div class="preview-wrap">
-      <canvas id="preview" width="1080" height="1080" aria-label="Cover preview"></canvas>
+  <div class="brand">
+    <span class="brand-mark">VC</span>
+    <div>
+      <h1>Vice Cover</h1>
+      <p>GTA 6-style cover art maker — photo in, poster out</p>
     </div>
-    <p id="status" class="status" role="status">Loading photos…</p>
-    <p class="hint">Click a panel to select it — drag to pan, scroll to zoom, or use the slider below.</p>
-  </section>
-  <aside class="panel" aria-label="Cover controls">
-    <section class="group">
-      <h2>One-click covers</h2>
-      <div class="chips" id="presets"></div>
+  </div>
+  <div class="top-actions">
+    <button id="exportBtn" class="btn primary">Export PNG</button>
+  </div>
+</header>
+
+<main class="workspace">
+  <aside class="controls" aria-label="Cover controls">
+    <section class="panel">
+      <h2>1 · Photos</h2>
+      <p class="hint">Load your own photo, or use a sample. Each panel picks its own photo.</p>
+      <div class="row">
+        <label class="btn file-btn">Upload photo
+          <input id="uploadInput" type="file" accept="image/*" multiple hidden>
+        </label>
+        <button id="sampleBtn" class="btn">Use samples</button>
+      </div>
+      <div id="photoStrip" class="photo-strip" aria-label="Available photos"></div>
     </section>
-    <section class="group">
-      <h2>Layout</h2>
-      <div class="chips" id="layouts"></div>
+
+    <section class="panel">
+      <h2>2 · Layout</h2>
+      <div id="layoutRow" class="chip-row" role="group" aria-label="Layout"></div>
     </section>
-    <section class="group">
-      <h2>Photo grade</h2>
-      <div class="chips" id="grades"></div>
+
+    <section class="panel">
+      <h2>3 · Preset covers</h2>
+      <p class="hint">One click: layout, grade, title and photos.</p>
+      <div id="presetRow" class="chip-row wrap" role="group" aria-label="Presets"></div>
     </section>
-    <section class="group">
-      <h2>Caption</h2>
+
+    <section class="panel">
+      <h2>4 · Colour grade</h2>
+      <div id="gradeRow" class="chip-row wrap" role="group" aria-label="Colour grade"></div>
+    </section>
+
+    <section class="panel">
+      <h2>5 · Caption</h2>
       <label class="field">Title
-        <input id="title" type="text" maxlength="24" value="VICE CITY" autocomplete="off">
+        <input id="titleInput" type="text" value="VICE CITY" maxlength="40" autocomplete="off">
       </label>
       <label class="field">Subtitle
-        <input id="subtitle" type="text" maxlength="40" value="SUNSET HEIST • EST. 2026" autocomplete="off">
+        <input id="subtitleInput" type="text" value="SUNSET HEIST" maxlength="40" autocomplete="off">
+      </label>
+      <label class="field">Kicker
+        <input id="kickerInput" type="text" value="A FAN-MADE POSTER" maxlength="48" autocomplete="off">
       </label>
     </section>
-    <section class="group">
-      <h2>Panels</h2>
-      <div id="panel-rows"></div>
+
+    <section class="panel">
+      <h2>6 · Panels</h2>
+      <p class="hint">Pick a panel, then its photo, pan and zoom.</p>
+      <div id="panelTabs" class="chip-row" role="group" aria-label="Panels"></div>
+      <label class="field">Photo
+        <select id="panelPhoto"></select>
+      </label>
+      <label class="field">Pan
+        <input id="panelPan" type="range" min="0" max="100" value="50">
+      </label>
+      <label class="field">Zoom
+        <input id="panelZoom" type="range" min="100" max="220" value="100">
+      </label>
     </section>
-    <section class="group">
-      <h2>Export size</h2>
-      <div class="chips" id="sizes"></div>
+
+    <section class="panel">
+      <h2>7 · Export size</h2>
+      <div id="sizeRow" class="chip-row" role="group" aria-label="Export size"></div>
+      <button id="exportBtn2" class="btn primary wide">Export PNG</button>
+      <p id="statusLine" class="status" role="status">Ready.</p>
     </section>
-    <div class="actions">
-      <button id="export" type="button" class="primary">Export PNG</button>
-      <button id="reset" type="button">Reset</button>
-    </div>
-    <p class="fineprint">Works fully offline. Your photos never leave this machine — upload, frame, export.</p>
   </aside>
+
+  <section class="stage" aria-label="Cover preview">
+    <div class="canvas-wrap">
+      <canvas id="coverCanvas" width="1080" height="1080"></canvas>
+    </div>
+    <p class="stage-hint">Live preview — every change re-renders instantly. Export writes a real PNG at the size above.</p>
+  </section>
 </main>
-<script type="module" src="./src/main.js"></script>
+
+<script type="module" src="src/main.js"></script>
 </body>
 </html>
