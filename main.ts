@@ -3,10 +3,16 @@
 // /output/dossier.json with the vendored make.fun library, so the gate and
 // the judge read exactly the app as built.
 //
+// The grader runs this as `node /bot/main.ts` as user 65534 on a read-only
+// filesystem, with /output writable but its parent read-only. So this program
+// NEVER removes the output directory itself: it creates it, then clears only
+// its contents, so a stale file can never ride along and the run cannot fail
+// with EACCES on the directory.
+//
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
@@ -14,9 +20,13 @@ import { buildDossier } from './vendor/makefun-app.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Start from a clean output dir so a stale file can never ride along.
-rmSync(out, { recursive: true, force: true });
+// Create the output directory, then clear only what is inside it.
+// Removing the directory itself would fail in the grader, where its
+// parent is read-only; removing its children one by one never does.
 mkdirSync(out, { recursive: true });
+for (const entry of readdirSync(out)) {
+  rmSync(join(out, entry), { recursive: true, force: true });
+}
 cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
 if (existsSync(join(here, 'screenshots'))) {
   cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });

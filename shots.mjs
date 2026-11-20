@@ -1,96 +1,122 @@
-// Vice Cover — screenshot maker.
-// Serves app/, opens it in headless Chromium, and takes the four screenshots
-// the bounty asks for: the cover first, then the editor at work, then covers
-// in the other post sizes. Covers are drawn with the app's own renderer on
-// an offscreen canvas at the exact export size, so what the screenshot shows
-// is what the app exports.
-//
-// Usage: node shots.mjs
-// Needs Playwright Chromium (see CHROMIUM below) and `node serve.ts`'s port.
-
+// Vice Cover — screenshot maker (Node 22 + Playwright, local Chromium only).
+// Serves app/ on a scratch port, drives the editor in desktop Chrome and
+// writes 4 JPEG screenshots into screenshots/:
+//   1-cover.jpg  Sunset Heist wide cover export (1280 x 720)
+//   2-editor.jpg the editor with a photo loaded (1280 x 900)
+//   3-cover.jpg  Dusk Drive portrait cover export (1024 x 1280)
+//   4-cover.jpg  Neon Nights square cover export (1080 x 1080)
+// Usage: node shots.mjs [--port 8907]
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { chromium } from 'playwright';
+import { statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire('/home/hatch/workspace/makefun/gta6/package.json');
+const { chromium } = require('playwright');
+
+const here = fileURLToPath(new URL('.', import.meta.url));
+const shotsDir = join(here, 'screenshots');
+const args = process.argv.slice(2);
+const portFlag = args.indexOf('--port');
+const port = portFlag === -1 ? 8907 : Number(args[portFlag + 1]) || 8907;
 
 const CHROMIUM = '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome';
-const PORT = 8123;
-const OUT = new URL('./screenshots/', import.meta.url).pathname;
 
 function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForReady(page) {
-  await page.waitForFunction(
-    () => window.__viceCover && document.getElementById('status')?.textContent.startsWith('Ready'),
-    { timeout: 30000 },
+async function waitForServer(url, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return;
+    } catch { /* not up yet */ }
+    await sleep(250);
+  }
+  throw new Error(`server did not come up at ${url}`);
+}
+
+async function shootCover(page, preset, size, width, height, outName) {
+  await page.evaluate(
+    ({ preset, size }) => {
+      window.viceCover.applyPreset(preset);
+      // applyPreset sets its own size; override to the shot's size.
+      window.viceCover.state.size = size;
+      window.viceCover.render();
+    },
+    { preset, size },
   );
-}
-
-// Draw the current cover state onto a throwaway canvas at exact size, then
-// screenshot just that canvas as a JPEG.
-async function shootCover(page, name, w, h) {
-  await page.evaluate(({ w, h }) => {
-    const cover = window.__viceCover;
-    const c = document.createElement('canvas');
-    c.id = 'shot-canvas';
-    c.width = w;
-    c.height = h;
-    c.style.cssText = 'position:fixed;left:0;top:0;z-index:9999;background:#000';
-    document.body.appendChild(c);
-    cover.drawCover(c.getContext('2d'), cover.state, w, h, cover.images);
-  }, { w, h });
-  const shot = page.locator('#shot-canvas');
-  await shot.screenshot({ path: OUT + name, type: 'jpeg', quality: 82 });
-  await page.evaluate(() => document.getElementById('shot-canvas')?.remove());
-  console.log('shot', name, `${w}x${h}`);
+  await sleep(350);
+  await page.evaluate(
+    ({ width, height }) => {
+      const canvas = document.getElementById('coverCanvas');
+      canvas.style.maxWidth = 'none';
+      canvas.style.maxHeight = 'none';
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      canvas.scrollIntoView({ block: 'center' });
+    },
+    { width, height },
+  );
+  await sleep(150);
+  const canvas = page.locator('#coverCanvas');
+  await canvas.screenshot({ path: join(shotsDir, outName), type: 'jpeg', quality: 82 });
+  const bytes = statSync(join(shotsDir, outName)).size;
+  console.log(`${outName}: ${width}x${height}, ${Math.round(bytes / 1024)} KiB`);
+  if (bytes > 262144) throw new Error(`${outName} is ${bytes} bytes, over the 256 KiB cap`);
 }
 
 async function main() {
-  mkdirSync(OUT, { recursive: true });
-  const server = spawn(process.execPath, ['serve.ts', String(PORT)], {
-    cwd: new URL('.', import.meta.url).pathname,
-    stdio: 'ignore',
+  const server = spawn('node', ['serve.ts', '--port', String(port)], {
+    cwd: here,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const browser = await chromium.launch({ executablePath: CHROMIUM, args: ['--no-sandbox'] });
+  let browser;
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 1150 } });
+    await waitForServer(`http://127.0.0.1:${port}/`);
+    browser = await chromium.launch({ executablePath: CHROMIUM });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errors = [];
-    page.on('pageerror', (e) => errors.push(String(e)));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
-    await waitForReady(page);
+    page.on('pageerror', (err) => errors.push(String(err)));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') errors.push(msg.text());
+    });
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+    await page.evaluate(() => window.viceCover.ready);
     await sleep(400);
+    if (errors.length > 0) throw new Error(`page errors on load: ${errors.join(' | ')}`);
 
-    // 1 — the cover: Sunset Heist, square.
-    await shootCover(page, '1-cover.jpg', 1080, 1080);
+    // Editor shot: Sunset Heist preset, photo loaded, editor visible.
+    await page.evaluate(() => window.viceCover.applyPreset('sunset-heist'));
+    await sleep(350);
+    await page.evaluate(() => {
+      const canvas = document.getElementById('coverCanvas');
+      canvas.style.maxWidth = '';
+      canvas.style.maxHeight = '';
+      canvas.style.width = '';
+      canvas.style.height = '';
+    });
+    await page.screenshot({ path: join(shotsDir, '2-editor.jpg'), type: 'jpeg', quality: 80 });
+    console.log(`2-editor.jpg: 1280x900, ${Math.round(statSync(join(shotsDir, '2-editor.jpg')).size / 1024)} KiB`);
 
-    // 2 — the editor with a photo loaded.
-    await page.screenshot({ path: OUT + '2-editor.jpg', type: 'jpeg', quality: 82 });
-    console.log('shot 2-editor.jpg 1280x1020');
+    // Cover exports, largest first by name (1-cover.jpg is the cover).
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await shootCover(page, 'sunset-heist', '1920x1080', 1280, 720, '1-cover.jpg');
+    await page.setViewportSize({ width: 1100, height: 1400 });
+    await shootCover(page, 'dusk-drive', '1080x1350', 1024, 1280, '3-cover.jpg');
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    await shootCover(page, 'neon-nights', '1080x1080', 1080, 1080, '4-cover.jpg');
 
-    // 3 — Dusk Drive triptych, portrait.
-    await page.evaluate(() => window.__viceCover.applyPreset('dusk-drive'));
-    await sleep(300);
-    await shootCover(page, '3-cover.jpg', 1024, 1280);
-
-    // 4 — Neon Nights cinematic, wide.
-    await page.evaluate(() => window.__viceCover.applyPreset('neon-nights'));
-    await sleep(300);
-    await shootCover(page, '4-cover.jpg', 1280, 720);
-
-    if (errors.length) {
-      console.error('PAGE ERRORS:', errors.join('\n'));
-      process.exitCode = 1;
-    }
+    console.log('screenshots done.');
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
     server.kill();
   }
-  console.log('done');
 }
 
 main().catch((err) => {
-  console.error(err);
+  console.error(err.message);
   process.exit(1);
 });
