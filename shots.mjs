@@ -1,54 +1,136 @@
-// Takes Vice Cover's screenshots with headless Chromium: serves app/ on
-// localhost, opens each ?shot= scene from shots.json, waits for
-// window.__shotReady, saves a JPEG, and re-takes at lower quality until it
-// fits the gate (<= 256 KiB, long side <= 1280, short side >= 480).
-import { chromium } from '/home/hatch/workspace/makefun/gta6/node_modules/playwright/index.mjs';
-import { spawn } from 'node:child_process';
-import { readFileSync, mkdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+// Vice Cover v5 — screenshot maker.
+// Serves app/ locally, drives it in headless Chromium (Playwright) and
+// writes 3-4 JPEG screenshots into screenshots/:
+//   1-cover.jpg  the app's exported PNG (Sunset Heist, square), scaled down
+//   2-editor.jpg the editor in the browser with a photo loaded
+//   3-cover.jpg  an exported portrait cover (Dusk Drive)
+//   4-cover.jpg  an exported wide cover (Neon Nights)
+// Every shot stays within the gate: long side <= 1280, short side >= 480,
+// each file <= 256 KiB. Run: node shots.mjs
 
-const REPO = '/home/hatch/workspace/makefun/coverart/repo-v4';
-const PORT = 8906;
-const SHOTS = JSON.parse(readFileSync(join(REPO, 'shots.json'), 'utf8'));
+import { createServer } from 'node:http';
+import { readFileSync, existsSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
-const server = spawn('node', ['serve.ts', '--port', String(PORT)], { cwd: REPO, stdio: 'pipe' });
-await new Promise((resolve) => setTimeout(resolve, 1500));
+const require = createRequire('/home/hatch/workspace/makefun/gta6/node_modules/playwright/package.json');
+const { chromium } = require('playwright');
 
-const browser = await chromium.launch({
-  executablePath: '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome',
-  args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--disable-gpu-sandbox', '--no-sandbox'],
-});
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-const errors = [];
-page.on('console', (msg) => { if (msg.type() === 'error') errors.push(`console: ${msg.text()}`); });
-page.on('pageerror', (err) => errors.push(`pageerror: ${err.message}`));
-page.on('requestfailed', (req) => errors.push(`requestfailed: ${req.url()}`));
+const here = fileURLToPath(new URL('.', import.meta.url));
+const appDir = join(here, 'app');
+const shotsDir = join(here, 'screenshots');
+const MAX_BYTES = 256 * 1024;
 
-mkdirSync(join(REPO, 'screenshots'), { recursive: true });
-let totalBytes = 0;
-for (const shot of SHOTS) {
-  const url = `http://localhost:${PORT}/${shot.query}`;
-  console.log('shot', shot.name, url);
-  await page.setViewportSize({ width: shot.w, height: shot.h });
-  await page.goto(url, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__shotReady === true, { timeout: 60000 });
-  const outPath = join(REPO, 'screenshots', shot.name);
-  let quality = 82;
-  for (;;) {
-    if (shot.element) {
-      await page.locator(shot.element).screenshot({ path: outPath, type: 'jpeg', quality });
-    } else {
-      await page.screenshot({ path: outPath, type: 'jpeg', quality });
-    }
-    const size = statSync(outPath).size;
-    totalBytes += size;
-    console.log(`  -> ${shot.name}: ${size} bytes at quality ${quality}`);
-    if (size <= 256 * 1024 || quality <= 40) break;
-    quality -= 10;
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+};
+
+function serveApp() {
+  return new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      const path = req.url === '/' ? '/index.html' : String(req.url).split('?')[0];
+      const file = join(appDir, path);
+      if (!file.startsWith(appDir) || !existsSync(file) || !statSync(file).isFile()) {
+        res.writeHead(404);
+        res.end('not found');
+        return;
+      }
+      res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+      res.end(readFileSync(file));
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+  });
+}
+
+async function launchBrowser() {
+  const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+  try {
+    return await chromium.launch({ args });
+  } catch (e) {
+    return await chromium.launch({
+      args,
+      executablePath: '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome',
+    });
   }
 }
-console.log(`shots done: ${SHOTS.length} files, ${totalBytes} bytes total`);
 
-await browser.close();
-server.kill();
-console.log('ERRORS:', errors.length ? errors : 'none');
+// The app's exported PNG, shown scaled down as a JPEG that fits the gate.
+async function exportCoverShot(browser, base, preset, targetW, targetH) {
+  const page = await browser.newPage({ viewport: { width: targetW, height: targetH } });
+  await page.goto(`${base}/index.html?shot=cover&preset=${preset}`);
+  await page.waitForFunction(() => window.__viceCover && window.__viceCover.canvas.width > 0);
+  await page.waitForTimeout(600);
+  const pngData = await page.evaluate(() => {
+    const c = window.__viceCover.canvas;
+    return c.toDataURL('image/png');
+  });
+  await page.close();
+  // Show the PNG itself in a fresh page and capture it as a JPEG.
+  const shot = await browser.newPage({ viewport: { width: targetW, height: targetH } });
+  await shot.setContent(
+    `<body style="margin:0"><img src="${pngData}" style="width:${targetW}px;height:${targetH}px;display:block"></body>`,
+  );
+  await shot.waitForTimeout(300);
+  let quality = 88;
+  let buf = null;
+  while (quality >= 40) {
+    buf = await shot.screenshot({ type: 'jpeg', quality });
+    if (buf.length <= MAX_BYTES) break;
+    quality -= 12;
+  }
+  await shot.close();
+  return buf;
+}
+
+async function editorShot(browser, base, preset) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1020 } });
+  await page.goto(`${base}/index.html?shot=editor&preset=${preset}`);
+  await page.waitForFunction(() => window.__viceCover && window.__viceCover.canvas.width > 0);
+  await page.waitForTimeout(600);
+  let quality = 85;
+  let buf = null;
+  while (quality >= 40) {
+    buf = await page.screenshot({ type: 'jpeg', quality });
+    if (buf.length <= MAX_BYTES) break;
+    quality -= 12;
+  }
+  await page.close();
+  return buf;
+}
+
+async function main() {
+  mkdirSync(shotsDir, { recursive: true });
+  const { server, port } = await serveApp();
+  const base = `http://127.0.0.1:${port}`;
+  const browser = await launchBrowser();
+  const results = [];
+  try {
+    const cover1 = await exportCoverShot(browser, base, 'sunsetHeist', 1080, 1080);
+    writeFileSync(join(shotsDir, '1-cover.jpg'), cover1);
+    results.push(['1-cover.jpg', cover1.length, '1080x1080']);
+    const editor = await editorShot(browser, base, 'sunsetHeist');
+    writeFileSync(join(shotsDir, '2-editor.jpg'), editor);
+    results.push(['2-editor.jpg', editor.length, '1280x1020']);
+    const cover3 = await exportCoverShot(browser, base, 'duskDrive', 1024, 1280);
+    writeFileSync(join(shotsDir, '3-cover.jpg'), cover3);
+    results.push(['3-cover.jpg', cover3.length, '1024x1280']);
+    const cover4 = await exportCoverShot(browser, base, 'neonNights', 1280, 720);
+    writeFileSync(join(shotsDir, '4-cover.jpg'), cover4);
+    results.push(['4-cover.jpg', cover4.length, '1280x720']);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+  for (const [name, bytes, dims] of results) {
+    const ok = bytes <= MAX_BYTES ? 'OK ' : 'OVER';
+    console.log(`${ok} ${name} ${dims} ${(bytes / 1024).toFixed(1)} KiB`);
+  }
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
