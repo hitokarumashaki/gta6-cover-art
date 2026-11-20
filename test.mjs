@@ -1,10 +1,10 @@
-// Vice Cover — functional tests (Node 22 + Playwright, local Chromium only).
-// Drives the app in desktop Chrome and checks the editor end to end, then
-// runs main.ts the way the grader does and checks the dossier it writes.
-// Usage: node test.mjs [--port 8908]
-// Exits 0 when every check passes, 1 otherwise.
-import { spawn, execSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+// Vice Cover v8 — functional test (Node 22 + Playwright, local Chromium only).
+// Serves app/, drives the editor in desktop Chrome and checks the app end to
+// end, then runs main.ts the way the grader does and checks its output.
+// Usage: node test.mjs [--port 8909]
+// Exit 0 only when every check passes; prints a PASS/FAIL line per check.
+import { spawn, execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -15,8 +15,15 @@ const { chromium } = require('playwright');
 const here = fileURLToPath(new URL('.', import.meta.url));
 const args = process.argv.slice(2);
 const portFlag = args.indexOf('--port');
-const port = portFlag === -1 ? 8908 : Number(args[portFlag + 1]) || 8908;
+const port = portFlag === -1 ? 8909 : Number(args[portFlag + 1]) || 8909;
+
 const CHROMIUM = '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome';
+
+const results = [];
+function check(name, ok, detail = '') {
+  results.push({ name, ok });
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -33,39 +40,13 @@ async function waitForServer(url, tries = 40) {
   throw new Error(`server did not come up at ${url}`);
 }
 
-// A cheap checksum over sampled canvas pixels: changes when the render does.
-async function canvasHash(page) {
+/** Reads a canvas back as PNG bytes and returns its byte length. A blank
+ * canvas still encodes, so a real drawing is checked by its size. */
+async function canvasBytes(page) {
   return page.evaluate(() => {
-    const c = document.getElementById('coverCanvas');
-    const ctx = c.getContext('2d');
-    const d = ctx.getImageData(0, 0, c.width, c.height).data;
-    let h = 2166136261;
-    for (let i = 0; i < d.length; i += 997) {
-      h ^= d[i];
-      h = Math.imul(h, 16777619);
-    }
-    return h >>> 0;
+    const c = document.getElementById('cover');
+    return c.toDataURL('image/png').length;
   });
-}
-
-async function canvasIsBlank(page) {
-  return page.evaluate(() => {
-    const c = document.getElementById('coverCanvas');
-    const ctx = c.getContext('2d');
-    const d = ctx.getImageData(0, 0, c.width, c.height).data;
-    const seen = new Set();
-    for (let i = 0; i < d.length; i += 401) {
-      seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
-      if (seen.size > 24) return false;
-    }
-    return true;
-  });
-}
-
-const results = [];
-function check(name, ok, detail = '') {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`);
 }
 
 async function main() {
@@ -83,107 +64,95 @@ async function main() {
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(msg.text());
     });
+
+    // 1. Loads with zero page errors.
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
     await page.evaluate(() => window.viceCover.ready);
-    await sleep(400);
-
+    await sleep(300);
     check('loads with zero page errors', errors.length === 0, errors.join(' | '));
 
-    const blank = await canvasIsBlank(page);
-    check('photos render (canvas is not blank)', !blank);
+    // 2. Sample photos load into the tray.
+    await page.click('#samples');
+    await sleep(500);
+    const thumbs = await page.locator('#tray .thumb').count();
+    check('sample photos load (2 thumbs)', thumbs === 2, `${thumbs} thumbs`);
 
-    const h0 = await canvasHash(page);
-    await page.evaluate(() => {
-      const btns = [...document.querySelectorAll('#layoutRow .chip')];
-      btns.find((b) => b.textContent === 'Triptych').click();
-    });
+    // 3. The hero cover draws (canvas bytes grow once photos are in).
+    const bytesWithPhotos = await canvasBytes(page);
+    check('hero cover renders with photos', bytesWithPhotos > 20000, `${bytesWithPhotos} chars`);
+
+    // 4. Grade switch re-renders (neon changes the canvas).
+    await page.click('[data-grade="neon"]');
     await sleep(300);
-    const h1 = await canvasHash(page);
-    check('layout switch re-renders', h0 !== h1);
+    const bytesNeon = await canvasBytes(page);
+    check('grade switch re-renders', bytesNeon !== bytesWithPhotos, 'canvas changed');
 
-    await page.evaluate(() => window.viceCover.applyPreset('neon-nights'));
+    // 5. Caption edit re-renders.
+    await page.fill('#caption', 'Neon Nights');
     await sleep(300);
-    const titleAfterPreset = await page.evaluate(() => document.getElementById('titleInput').value);
-    const h2 = await canvasHash(page);
-    check(
-      'preset applies (Neon Nights title + re-render)',
-      titleAfterPreset === 'NEON NIGHTS' && h1 !== h2,
-      `title=${titleAfterPreset}`,
-    );
+    const bytesCaption = await canvasBytes(page);
+    check('caption edit re-renders', bytesCaption !== bytesNeon, 'canvas changed');
 
-    await page.evaluate(() => {
-      const btns = [...document.querySelectorAll('#gradeRow .chip')];
-      btns.find((b) => b.textContent === 'Dusk').click();
-    });
-    await sleep(300);
-    const h3 = await canvasHash(page);
-    check('grade change re-renders', h2 !== h3);
-
-    await page.fill('#titleInput', 'MIDNIGHT RUN');
-    await sleep(300);
-    const h4 = await canvasHash(page);
-    check('caption edit re-renders', h3 !== h4);
-
-    await page.evaluate(() => {
-      const btns = [...document.querySelectorAll('#sizeRow .chip')];
-      btns.find((b) => b.textContent.includes('Portrait')).click();
-    });
+    // 6. Export size switch works (square canvas).
+    await page.click('[data-size="1080x1080"]');
     await sleep(300);
     const dims = await page.evaluate(() => {
-      const c = document.getElementById('coverCanvas');
-      return { w: c.width, h: c.height };
+      const c = document.getElementById('cover');
+      return `${c.width}x${c.height}`;
     });
-    check('size switch resizes canvas to 1080x1350', dims.w === 1080 && dims.h === 1350, `${dims.w}x${dims.h}`);
+    check('export size switch to 1080x1080', dims === '1080x1080', dims);
 
-    const shot = await page.evaluate(async () => {
-      const blob = await window.viceCover.exportPNG();
-      return blob ? { size: blob.size, type: blob.type } : null;
-    });
-    check(
-      'export writes a real PNG',
-      shot !== null && shot.type === 'image/png' && shot.size > 10000,
-      shot ? `${shot.type}, ${Math.round(shot.size / 1024)} KiB` : 'no blob',
-    );
+    // 7. Export writes a real PNG download.
+    const download = page.waitForEvent('download', { timeout: 15000 });
+    await page.click('#export');
+    const dl = await download;
+    const dlPath = join(here, 'out-test-export.png');
+    await dl.saveAs(dlPath);
+    const dlBytes = statSync(dlPath).size;
+    check('export writes a real PNG', dlBytes > 100000, `${Math.round(dlBytes / 1024)} KiB`);
 
-    await page.evaluate(() => {
-      const slider = document.getElementById('panelZoom');
-      slider.value = '180';
-      slider.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    // 8. Panel zoom slider works.
+    await page.fill('#zoom', '2');
+    await page.dispatchEvent('#zoom', 'input');
     await sleep(300);
-    const h5 = await canvasHash(page);
-    check('panel zoom slider re-renders', h4 !== h5);
+    const zoom = await page.evaluate(() => window.viceCover.state.panels[0].zoom);
+    check('panel zoom slider works', zoom === 2, `zoom ${zoom}`);
+
+    // 9. main.ts exits 0 the way the grader runs it, with a dossier.
+    const outDir = join(here, 'out');
+    mkdirSync(outDir, { recursive: true });
+    // Pre-seed a stale file: main.ts must clear it without deleting out/ itself.
+    const stale = join(outDir, 'stale.txt');
+    require('node:fs').writeFileSync(stale, 'stale');
+    execFileSync('node', ['main.ts'], {
+      cwd: here,
+      env: { ...process.env, MAKEFUN_OUTPUT_DIR: outDir },
+      stdio: 'pipe',
+    });
+    const dossier = join(outDir, 'dossier.json');
+    const parsed = JSON.parse(readFileSync(dossier, 'utf8'));
+    const dossierOk = existsSync(dossier) && parsed.schema === 'makefun/dossier/v1' && parsed.images.length === 4;
+    check('main.ts exits 0, stale file cleared, dossier written', dossierOk && !existsSync(stale) && existsSync(outDir),
+      dossierOk ? 'dossier ok, stale gone, out/ survived' : 'dossier missing or bad');
+    rmSync(outDir, { recursive: true, force: true });
+
+    // 10. README carries the three make.fun badges at the top.
+    const readme = readFileSync(join(here, 'README.md'), 'utf8');
+    const badges = ['make.fun/badge/gta6-cover-art-01.svg',
+      'make.fun/badge/gta6-cover-art-01/hitokarumashaki/gta6-cover-art/rank.svg',
+      'make.fun/badge/gta6-cover-art-01/hitokarumashaki/gta6-cover-art/reward.svg'];
+    check('README has all three make.fun badges', badges.every((b) => readme.includes(b)));
   } finally {
     if (browser) await browser.close();
     server.kill();
   }
 
-  // main.ts the way the grader runs it: fresh output dir, exit 0, dossier written.
-  try {
-    rmSync(join(here, 'out'), { recursive: true, force: true });
-    execSync('mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts', { cwd: here, stdio: 'pipe', timeout: 30000 });
-    const dossierPath = join(here, 'out', 'dossier.json');
-    const ok = existsSync(dossierPath) && existsSync(join(here, 'out', 'app', 'index.html'));
-    let schema = '';
-    if (ok) {
-      const dossier = JSON.parse(readFileSync(dossierPath, 'utf8'));
-      schema = dossier.schema ?? '';
-    }
-    check(
-      'main.ts exits 0 and writes a valid dossier',
-      ok && schema === 'makefun/dossier/v1',
-      `schema=${schema || 'missing'}`,
-    );
-  } catch (err) {
-    check('main.ts exits 0 and writes a valid dossier', false, String(err.message).slice(0, 200));
-  }
-
-  const passed = results.filter((r) => r.ok).length;
-  console.log(`\n${passed}/${results.length} checks passed.`);
-  if (passed !== results.length) process.exit(1);
+  const failed = results.filter((r) => !r.ok).length;
+  console.log(`\n${results.length - failed}/${results.length} checks passed.`);
+  process.exit(failed ? 1 : 0);
 }
 
 main().catch((err) => {
-  console.error(err.message);
+  console.error(`FAIL  ${err.message}`);
   process.exit(1);
 });
