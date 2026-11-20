@@ -1,48 +1,43 @@
-# Vice Cover v5 — GTA 6 Cover Art Maker
+[![make.fun · gta6-cover-art-01](https://make.fun/badge/gta6-cover-art-01.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
+[![rank](https://make.fun/badge/gta6-cover-art-01/hitokarumashaki/gta6-cover-art/rank.svg)](https://make.fun/bounty/gta6-cover-art-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
+[![reward](https://make.fun/badge/gta6-cover-art-01/hitokarumashaki/gta6-cover-art/reward.svg)](https://make.fun/bounty/gta6-cover-art-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-cover-art-01)
 
-Turn a photo into a GTA 6-style multi-panel poster cover and export it as a
-PNG to share. Built for make.fun's **gta6-cover-art-01** bounty.
+# Vice Cover — GTA 6 Cover Art Maker
 
-## What it does
+Turn any photo into a GTA 6-style multi-panel poster cover, offline in your
+browser. Pick a photo, frame it in one of five layouts, tap a one-click
+preset, type your title, and export a PNG to share.
 
-- **5 layouts** — Hero, Grid 2×2, Triptych, Cinematic, Split — with clean
-  white panel seams and a diagonal split option.
-- **5 one-click preset covers** — Sunset Heist, Neon Nights, Dusk Drive,
-  Palm Gold, Vice Noir — each with its own layout, grade, words and size.
-- **4 photo grades** — Sunset, Neon, Noir, Palm Gold — punchy saturate /
-  contrast filters plus a tint, vignette and film grain.
-- **Any photo** — upload your own photos into any panel, then drag to pan
-  and scroll to zoom each panel, or use the per-panel zoom slider.
-- **Bold caption** — a 20%-of-cover-height title in a five-stop
-  sunset-to-neon gradient with a thick dark outline and hard shadow, a
-  subtitle pill, a VICE CITY banner and a five-star row. Titles sit at the
-  bottom so no face is ever covered.
-- **Fast export** — PNG in 1080×1080, 1080×1350 or 1920×1080, one click.
+- **5 layouts** — Hero, Grid 2×2, Triptych, Cinematic, Split
+- **5 one-click presets** — Sunset Heist, Neon Nights, Dusk Drive, Palm Gold, Vice Noir
+- **4 photo grades** — Sunset, Neon, Noir, Palm Gold
+- **Per-panel crop** — drag to pan, scroll or slide to zoom, upload your own photo per panel
+- **Export sizes** — Square 1080 × 1080, Portrait 1080 × 1350, Wide 1920 × 1080
 
-## Try it
+## Run it
+
+Serve `app/` with any static server and open `index.html`:
 
 ```sh
 node serve.ts
 # open http://localhost:8080
 ```
 
-Pick a preset, or build your own: choose a layout, a grade, type a title,
-upload photos, drag panels into place, export.
+Or open `app/index.html` straight from the folder — everything runs offline,
+no network request, your photos never leave your machine.
 
-## Hand it in
+## How to make a cover
 
-```sh
-mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-```
+1. **Select photo** — a sample is loaded already, or upload your own per panel.
+2. **Pick a preset** — one click sets layout, grade, title and subtitle.
+3. **Type title** — it auto-fits the cover width and sits above the subtitle pill.
+4. **Export PNG** — choose a size and download.
 
-`main.ts` copies `app/` and `screenshots/` to the output directory and
-writes `dossier.json` with the vendored make.fun library.
+## Files
 
-## Notes
+- `app/` — the web app (static files, no build step)
+- `app/samples/` — two free-to-use sample photos from the make.fun kit
+- `screenshots/` — the cover and the editor in action
+- `main.ts` — hands the app in (copies `app/` + `screenshots/` and writes the dossier)
 
-- Works fully offline: every script, style, image and font is a file under
-  `app/`; photos are read on your own machine and never uploaded.
-- No Rockstar Games logo, artwork or font anywhere. The two bundled sample
-  photos (`app/samples/`) were made with an image model for make.fun and
-  are free to use.
-- License: MIT.
+Made for the [make.fun GTA 6 Cover Art bounty](https://make.fun/bounty/gta6-cover-art-01).
