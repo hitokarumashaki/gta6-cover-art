@@ -4,40 +4,52 @@
 
 # Vice Cover — GTA 6 Cover Art Maker
 
-Turn any photo into a GTA 6-style multi-panel poster cover, offline in your
-browser. Pick a photo, frame it in one of five layouts, tap a one-click
-preset, type your title, and export a PNG to share.
+Turn a photo and a caption into GTA 6-style cover art: a multi-panel poster
+with bold gradient lettering and a Vice City sunset or neon colour grade,
+exported as a PNG to share. Runs entirely offline in a desktop browser —
+photos are read on your own machine, never uploaded.
 
-- **5 layouts** — Hero, Grid 2×2, Triptych, Cinematic, Split
-- **5 one-click presets** — Sunset Heist, Neon Nights, Dusk Drive, Palm Gold, Vice Noir
-- **4 photo grades** — Sunset, Neon, Noir, Palm Gold
-- **Per-panel crop** — drag to pan, scroll or slide to zoom, upload your own photo per panel
-- **Export sizes** — Square 1080 × 1080, Portrait 1080 × 1350, Wide 1920 × 1080
+## How it works
 
-## Run it
+1. **Photos** — upload your own, or use the two sample photos. Every panel
+   picks its own photo, with pan and zoom per panel.
+2. **Layout** — five panel layouts: Hero Left, Hero Right, Triptych, Quad and
+   Full Bleed. The hero panel takes 66% of the cover.
+3. **Preset covers** — one click applies a whole look: Sunset Heist, Neon
+   Nights, Dusk Drive, Vice Sunrise or Midnight Heat.
+4. **Colour grade** — Sunset, Neon, Dusk or Noir: saturation, contrast and a
+   tint wash over the whole cover.
+5. **Caption** — title, subtitle and kicker. The title auto-fits the cover
+   width and is drawn in a five-stop sunset-to-neon gradient; the subtitle
+   sits in a dark pill at the bottom so no face is ever covered.
+6. **Export size** — 1080 × 1080, 1080 × 1350 or 1920 × 1080, then Export PNG
+   downloads the real PNG.
 
-Serve `app/` with any static server and open `index.html`:
+## Try it
 
 ```sh
 node serve.ts
 # open http://localhost:8080
 ```
 
-Or open `app/index.html` straight from the folder — everything runs offline,
-no network request, your photos never leave your machine.
+## Hand it in
 
-## How to make a cover
+```sh
+mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+```
 
-1. **Select photo** — a sample is loaded already, or upload your own per panel.
-2. **Pick a preset** — one click sets layout, grade, title and subtitle.
-3. **Type title** — it auto-fits the cover width and sits above the subtitle pill.
-4. **Export PNG** — choose a size and download.
+This writes `out/dossier.json` (via `vendor/makefun-app.ts`) beside the
+handed-in `app/` and `screenshots/`. `main.ts` never removes the output
+directory itself — it creates it and clears only its contents — so it runs
+in the grader's read-only container as well as locally.
 
-## Files
+## Screenshots
 
-- `app/` — the web app (static files, no build step)
-- `app/samples/` — two free-to-use sample photos from the make.fun kit
-- `screenshots/` — the cover and the editor in action
-- `main.ts` — hands the app in (copies `app/` + `screenshots/` and writes the dossier)
+- `1-cover.jpg` — Sunset Heist, wide 1920 × 1080 cover export
+- `2-editor.jpg` — the editor with a photo loaded
+- `3-cover.jpg` — Dusk Drive, portrait 1080 × 1350 cover export
+- `4-cover.jpg` — Neon Nights, square 1080 × 1080 cover export
 
-Made for the [make.fun GTA 6 Cover Art bounty](https://make.fun/bounty/gta6-cover-art-01).
+Built for the [make.fun GTA 6 Cover Art bounty](https://make.fun/bounty/gta6-cover-art-01).
+The two sample photos were made for make.fun with an image model and are
+free to use. No Rockstar artwork, logos or fonts are used anywhere.
