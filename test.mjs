@@ -1,175 +1,129 @@
-// Vice Cover v5 — functional test (9 checks).
-// Serves app/ locally, drives it in headless Chromium (Playwright) and
-// reports PASS/FAIL per check. Run: node test.mjs
+// Vice Cover — functional tests (9 checks).
+// Serves app/, drives it in headless Chromium, and verifies the editor loads,
+// renders, switches layout/preset/grade, edits the caption, zooms a panel and
+// exports a real PNG. Prints PASS/FAIL per check and exits non-zero on failure.
+//
+// Usage: node test.mjs
 
-import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync } from 'node:fs';
-import { join, extname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { chromium } from 'playwright';
 
-const require = createRequire('/home/hatch/workspace/makefun/gta6/node_modules/playwright/package.json');
-const { chromium } = require('playwright');
+const CHROMIUM = '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome';
+const PORT = 8124;
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const appDir = join(here, 'app');
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.jpg': 'image/jpeg',
-  '.png': 'image/png',
-};
-
-function serveApp() {
-  return new Promise((resolve) => {
-    const server = createServer((req, res) => {
-      const path = req.url === '/' ? '/index.html' : String(req.url).split('?')[0];
-      const file = join(appDir, path);
-      if (!file.startsWith(appDir) || !existsSync(file) || !statSync(file).isFile()) {
-        res.writeHead(404);
-        res.end('not found');
-        return;
-      }
-      res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-      res.end(readFileSync(file));
-    });
-    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }));
+async function canvasHash(page) {
+  return page.evaluate(() => {
+    const c = document.getElementById('preview');
+    const g = c.getContext('2d');
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    let sum = 0;
+    let varied = 0;
+    let prev = -1;
+    for (let i = 0; i < d.length; i += 401) {
+      sum += d[i] + d[i + 1] + d[i + 2];
+      if (prev >= 0 && Math.abs(d[i] - prev) > 12) varied++;
+      prev = d[i];
+    }
+    return { sum, varied };
   });
 }
 
-async function launchBrowser() {
-  const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
-  try {
-    return await chromium.launch({ args });
-  } catch (e) {
-    return await chromium.launch({
-      args,
-      executablePath: '/home/hatch/.cache/ms-playwright/chromium-1255/chrome-linux/chrome',
-    });
-  }
-}
-
-// A fingerprint of the current cover: the canvas drawn down to a 32x32
-// thumbnail, hashed pixel by pixel — dense enough to catch title changes.
-function fingerprintScript() {
-  return () => {
-    const c = window.__viceCover.canvas;
-    const thumb = document.createElement('canvas');
-    thumb.width = 32;
-    thumb.height = 32;
-    const tctx = thumb.getContext('2d');
-    tctx.drawImage(c, 0, 0, 32, 32);
-    const d = tctx.getImageData(0, 0, 32, 32).data;
-    let h1 = 0;
-    let h2 = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      h1 = (h1 * 31 + d[i] + d[i + 1] * 3 + d[i + 2] * 7) >>> 0;
-      h2 = (h2 * 17 + d[i] * 5 + d[i + 1] + d[i + 2] * 11) >>> 0;
-    }
-    return `${c.width}x${c.height}:${h1.toString(36)}-${h2.toString(36)}`;
-  };
-}
-
 async function main() {
-  const checks = [];
-  const check = (name, ok) => {
-    checks.push([name, ok]);
-    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);
+  const results = [];
+  const check = (name, ok, detail = '') => {
+    results.push({ name, ok });
+    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ' — ' + detail : ''}`);
   };
-  const { server, port } = await serveApp();
-  const base = `http://127.0.0.1:${port}`;
-  const browser = await launchBrowser();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  const errors = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+
+  const server = spawn(process.execPath, ['serve.ts', String(PORT)], {
+    cwd: new URL('.', import.meta.url).pathname,
+    stdio: 'ignore',
+  });
+  const browser = await chromium.launch({ executablePath: CHROMIUM, args: ['--no-sandbox'] });
   try {
-    await page.goto(`${base}/index.html`);
-    await page.waitForFunction(() => window.__viceCover && window.__viceCover.canvas.width > 0);
-    await page.waitForTimeout(500);
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1020 } });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' });
+    await page.waitForFunction(
+      () => window.__viceCover && document.getElementById('status')?.textContent.startsWith('Ready'),
+      { timeout: 30000 },
+    );
+    await sleep(300);
 
-    // 1. App loads with no page errors.
-    check('1. app loads, canvas present, no page errors', errors.length === 0);
+    // 1 — loads with no page errors.
+    check('loads without page errors', errors.length === 0, errors.join('; '));
 
-    // 2. Photos loaded: the cover is not a blank dark canvas.
-    const brightness = await page.evaluate(() => {
-      const c = window.__viceCover.canvas;
-      const ctx = c.getContext('2d');
-      const d = ctx.getImageData(0, 0, c.width, c.height).data;
-      let sum = 0;
-      let n = 0;
-      for (let i = 0; i < d.length; i += 401 * 4) { sum += d[i] + d[i + 1] + d[i + 2]; n++; }
-      return sum / n;
-    });
-    check('2. sample photos render (cover is not blank)', brightness > 40);
+    // 2 — preview canvas is drawn (pixels vary, not blank).
+    const before = await canvasHash(page);
+    check('preview renders a non-blank cover', before.varied > 50, `varied=${before.varied}`);
 
-    // 3. Layout switch changes the render.
-    const fp0 = await page.evaluate(fingerprintScript());
-    await page.click('[data-layout="grid"]');
-    await page.waitForTimeout(300);
-    const fpGrid = await page.evaluate(fingerprintScript());
-    check('3. layout switch re-renders (Hero -> Grid 2x2)', fpGrid !== fp0);
+    // 3 — layout switch re-renders.
+    await page.click('#layouts button[data-id="grid"]');
+    await sleep(300);
+    const afterGrid = await canvasHash(page);
+    check('layout switch re-renders', afterGrid.sum !== before.sum, `sum ${before.sum} -> ${afterGrid.sum}`);
 
-    // 4. Preset apply updates the caption and the render.
-    await page.click('[data-preset="neonNights"]');
-    await page.waitForTimeout(300);
-    const title = await page.inputValue('#titleInput');
-    check('4. preset applies (Neon Nights sets title)', title === 'NEON NIGHTS');
+    // 4 — preset applies its title.
+    await page.click('#presets button[data-id="neon-nights"]');
+    await sleep(300);
+    const title = await page.inputValue('#title');
+    check('preset applies title', title === 'NEON NIGHTS', `title=${title}`);
 
-    // 5. Grade switch changes the render.
-    const fpNeon = await page.evaluate(fingerprintScript());
-    await page.click('[data-grade="noir"]');
-    await page.waitForTimeout(300);
-    const fpNoir = await page.evaluate(fingerprintScript());
-    check('5. grade switch re-renders (Neon -> Noir)', fpNoir !== fpNeon);
+    // 5 — grade switch re-renders.
+    const afterPreset = await canvasHash(page);
+    await page.click('#grades button[data-id="noir"]');
+    await sleep(300);
+    const afterGrade = await canvasHash(page);
+    check('grade switch re-renders', afterGrade.sum !== afterPreset.sum, `sum ${afterPreset.sum} -> ${afterGrade.sum}`);
 
-    // 6. Size switch changes the canvas dimensions.
-    await page.click('[data-size="1080x1350"]');
-    await page.waitForTimeout(300);
-    const dims = await page.evaluate(() => {
-      const c = window.__viceCover.canvas;
-      return `${c.width}x${c.height}`;
-    });
-    check('6. size switch resizes canvas (1080x1350)', dims === '1080x1350');
+    // 6 — caption edit re-renders.
+    await page.fill('#title', 'OCEAN DRIVE');
+    await sleep(300);
+    const afterTitle = await canvasHash(page);
+    check('caption edit re-renders', afterTitle.sum !== afterGrade.sum, `sum ${afterGrade.sum} -> ${afterTitle.sum}`);
 
-    // 7. Title edit changes the render.
-    const fpBefore = await page.evaluate(fingerprintScript());
-    await page.fill('#titleInput', 'PALM CITY');
-    await page.waitForTimeout(300);
-    const fpAfter = await page.evaluate(fingerprintScript());
-    check('7. caption edit re-renders (title -> PALM CITY)', fpAfter !== fpBefore);
-
-    // 8. Export produces a PNG download.
-    const download = page.waitForEvent('download', { timeout: 10000 });
-    await page.click('#exportBtn');
+    // 7 — export downloads a real PNG.
+    const download = page.waitForEvent('download', { timeout: 15000 });
+    await page.click('#export');
     const dl = await download;
     const path = await dl.path();
-    const header = readFileSync(path).subarray(0, 8);
-    const isPng = header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47;
-    check('8. export downloads a PNG file', isPng && dl.suggestedFilename().endsWith('.png'));
+    const { readFileSync } = await import('node:fs');
+    const bytes = readFileSync(path);
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    check('export downloads a real PNG', isPng && bytes.length > 10000, `${bytes.length} bytes, PNG=${isPng}`);
 
-    // 9. Per-panel zoom slider changes the render.
-    await page.click('[data-layout="hero"]');
-    await page.waitForTimeout(200);
-    const fpZ0 = await page.evaluate(fingerprintScript());
-    await page.evaluate(() => {
-      const slider = document.querySelector('.panel-row input[type="range"]');
-      slider.value = '2';
-      slider.dispatchEvent(new Event('input', { bubbles: true }));
+    // 8 — panel zoom slider re-renders.
+    const afterExport = await canvasHash(page);
+    await page.locator('.panel-row[data-index="0"] input[type="range"]').fill('2.2');
+    await page.locator('.panel-row[data-index="0"] input[type="range"]').dispatchEvent('input');
+    await sleep(300);
+    const afterZoom = await canvasHash(page);
+    check('panel zoom slider re-renders', afterZoom.sum !== afterExport.sum, `sum ${afterExport.sum} -> ${afterZoom.sum}`);
+
+    // 9 — export size switch changes the canvas to portrait.
+    await page.click('#sizes button[data-id="portrait"]');
+    await sleep(300);
+    const dims = await page.evaluate(() => {
+      const c = document.getElementById('preview');
+      return { w: c.width, h: c.height };
     });
-    await page.waitForTimeout(300);
-    const fpZ1 = await page.evaluate(fingerprintScript());
-    check('9. panel zoom slider re-renders', fpZ1 !== fpZ0);
+    check('size switch resizes preview to portrait', dims.w === 1080 && dims.h === 1350, `${dims.w}x${dims.h}`);
   } finally {
     await browser.close();
-    server.close();
+    server.kill();
   }
-  const passed = checks.filter(([, ok]) => ok).length;
-  console.log(`\n${passed}/${checks.length} checks passed`);
-  process.exit(passed === checks.length ? 0 : 1);
+  const failed = results.filter((r) => !r.ok).length;
+  console.log(`\n${results.length - failed}/${results.length} PASS`);
+  process.exit(failed ? 1 : 0);
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
